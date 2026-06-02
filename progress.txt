@@ -1,0 +1,16 @@
+Lite Code Agent - Ralph Progress Log
+Project: Lite Code Agent
+Branch: ralph/lite-code-agent
+========================================
+
+[2026-06-02] US-001 项目脚手架与配置加载 — 完成
+- 创建 package.json：type=module，scripts(start/dev/typecheck)，依赖 @langchain/langgraph@0.2.74、@langchain/core@0.3.80、@langchain/anthropic@0.3.34、dotenv；devDeps tsx@4.22.4、typescript@5.9.3、@types/node。
+- 创建 tsconfig.json：ES2022 + ESNext + Bundler 解析，strict 全开，noUnusedLocals/Params，include src/**。
+- 实现 src/config.ts：loadConfig() 合并 .env 与 config.json（优先级 env > 文件 > 默认）；强类型 AppConfig（provider/workdir/超时/读取行数/输出字节预算/maxIterations/langfuse）；apiKey 缺失时抛明确错误；isLangfuseEnabled() 判定监控开关；ensureLitecodeDir() 启动时自动创建 .litecode/。
+- 实现 src/index.ts：入口，加载配置 → 建 .litecode/ → 打印启动概览；配置错误时可读提示并 exit(1)。
+- 创建 .env.example、config.example.json、.gitignore（忽略 node_modules/dist/.env/config.json/.litecode）。
+- 默认 model 设为 claude-sonnet-4-6。
+- 验收：`npm run typecheck` 通过；无 apiKey 启动报错退出 1；有 apiKey 正常启动并创建 .litecode/。
+- 代码全程中文注释。
+
+下一步：US-002 可切换的 LLM Provider 抽象（默认 Anthropic）。

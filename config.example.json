@@ -1,0 +1,14 @@
+{
+  "provider": {
+    "type": "anthropic",
+    "model": "claude-sonnet-4-6"
+  },
+  "workdir": "./examples",
+  "commandTimeoutMs": 30000,
+  "readFileMaxLines": 2000,
+  "commandOutputMaxBytes": 30720,
+  "maxIterations": 25,
+  "langfuse": {
+    "baseURL": "https://cloud.langfuse.com"
+  }
+}

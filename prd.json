@@ -1,0 +1,193 @@
+{
+  "project": "Lite Code Agent",
+  "branchName": "ralph/lite-code-agent",
+  "description": "轻量级 code agent，使用 LangGraph + TypeScript 实现。参考 Claude Code 的交互模式：CLI 对话、受限 child_process 沙箱执行代码与构建脚本、本地文件读写、Claude Code 式模式匹配授权（持久化到 .litecode/settings.local.json）、默认 Anthropic provider（claude-sonnet-4-6），可选 Langfuse 监控。用于学习 Agent 应用开发。",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "项目脚手架与配置加载",
+      "description": "As a developer, I want 一个可运行的 TypeScript 项目骨架与配置系统 so that 我可以从一个干净的基础上开始构建 agent。",
+      "acceptanceCriteria": [
+        "初始化 TS 项目（package.json、tsconfig.json、src/），可用 tsx 运行",
+        "安装依赖：@langchain/langgraph、@langchain/core、@langchain/anthropic",
+        "配置从 config.json 或环境变量加载：provider 类型、apiKey、baseURL、model、工作目录、超时时间、Langfuse 配置（可选）",
+        "提供 .env.example 与示例 config.json",
+        "启动时自动创建 .litecode/ 目录（若不存在）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "可切换的 LLM Provider 抽象（默认 Anthropic）",
+      "description": "As a developer, I want 一个统一的模型接入层 so that 我可以配置 Anthropic 并在未来切换其他 provider 而不改 agent 主逻辑。",
+      "acceptanceCriteria": [
+        "定义工厂函数，根据配置返回 LangChain 的 ChatModel 实例",
+        "默认 provider 为 Anthropic（@langchain/anthropic），支持配置 apiKey、baseURL、model，默认 model 为 claude-sonnet-4-6",
+        "apiKey 缺失时启动给出明确报错；baseURL 可选",
+        "provider 层留出扩展点，未来可加 OpenAI / Ollama 而不改 agent 主循环",
+        "模型支持 tool calling（bind tools）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "只读工具：文件读取（分页）与目录列举",
+      "description": "As a user, I want agent 能读取文件和列出目录 so that 它能理解我的项目结构和代码。",
+      "acceptanceCriteria": [
+        "实现 read_file(path, offset?, limit?) 工具：默认只读前 2000 行，支持 offset/limit 分页",
+        "截断时尾部标注剩余行数与续读方式（如 offset=...）",
+        "实现 list_dir(path) 工具：条目过多时返回总数 + 前 N 条并提示用更具体路径",
+        "路径经工作目录白名单校验，越界路径返回明确错误而非读取",
+        "只读工具默认放行（不需授权）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "工具：整文件写入（需授权）",
+      "description": "As a user, I want agent 能创建和修改文件 so that 它能帮我写代码，但我要先批准。",
+      "acceptanceCriteria": [
+        "实现 write_file(path, content) 工具：写入/覆盖文件",
+        "写入前显示将要写入的路径与内容摘要（或 diff）",
+        "路径越界（超出工作目录白名单）直接拒绝",
+        "工具标注为「写入」授权级别",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "工具：基于 diff 的局部编辑（需授权）",
+      "description": "As a user, I want agent 能对现有文件做局部修改而非整文件覆盖 so that 改动更精确、可见、可控。",
+      "acceptanceCriteria": [
+        "实现 edit_file(path, old_string, new_string) 工具：精确替换片段",
+        "old_string 在文件中不唯一或不存在时返回明确错误，不做修改",
+        "修改前展示 diff（前后对比）",
+        "路径越界直接拒绝",
+        "工具标注为「写入」授权级别",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "工具：沙箱命令执行（child_process + 限制，需授权）",
+      "description": "As a user, I want agent 能在受限沙箱中运行命令和构建脚本 so that 它能执行测试、构建、安装依赖等任务而不威胁我的系统。",
+      "acceptanceCriteria": [
+        "实现 run_command(command) 工具：通过 child_process spawn 执行",
+        "cwd 锁定为配置的工作目录",
+        "强制执行超时（可配置，默认 30s），超时则杀掉进程并返回错误",
+        "捕获并返回 stdout、stderr，始终完整返回 exit code",
+        "输出按字节预算截断（默认 30KB）：保留头部 N 行 + 尾部 M 行，中间用省略占位",
+        "工具标注为「执行」授权级别",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "模式匹配授权与 settings.local.json 持久化",
+      "description": "As a user, I want 用「工具名 + 参数模式」的规则来授权（参考 Claude Code）并能把决定持久化 so that 我能精细控制哪些操作免询问，下次会话也生效。",
+      "acceptanceCriteria": [
+        "授权规则采用「工具名(参数模式)」格式，支持通配符 *（如 Bash(npx tsc *)、WriteFile(src/*)）",
+        "规则存于 .litecode/settings.local.json 的 permissions.allow 与 permissions.deny 列表",
+        "匹配逻辑：命中 deny 直接拒绝；命中 allow 免询问放行；都不命中则提示用户",
+        "只读工具默认放行，无需出现在 allow 列表",
+        "提示用户时展示工具名+具体参数；支持 y（本次允许）/ n（本次拒绝）/ a（始终允许写入 allow）/ d（始终拒绝写入 deny）",
+        "选 a/d 时将当前调用泛化为可复用模式规则并写回 settings.local.json",
+        "启动时文件不存在则创建默认结构，存在则加载已记住的规则",
+        "拒绝时将拒绝信息作为工具结果回传给 agent 而非崩溃",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "LangGraph Agent 主循环（StateGraph）",
+      "description": "As a developer, I want 用 LangGraph 的 StateGraph 编排 agent 的思考-行动循环 so that 我能清楚理解 agent 的状态流转。",
+      "acceptanceCriteria": [
+        "定义图状态（messages 累积）",
+        "节点：agent（调用 LLM，可能产生 tool_calls）、tools（执行工具，含授权拦截）",
+        "条件边：若 LLM 返回 tool_calls 则进入 tools 节点，否则结束",
+        "tools 执行完回到 agent 节点形成循环",
+        "有最大迭代次数保护防止无限循环",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "CLI 交互界面（分步骤块状展示）",
+      "description": "As a user, I want 一个命令行对话界面 so that 我可以像用 Claude Code 一样输入任务并看到 agent 的工作过程。",
+      "acceptanceCriteria": [
+        "启动后进入 REPL 循环：读取输入 → 运行 agent → 打印结果 → 等待下一条",
+        "分步骤块状展示（非流式 token）：每步打印一个块（思考 / 工具调用名称+参数 / 工具结果）",
+        "授权提示在终端内交互（对接 US-007）",
+        "支持退出命令（如 /exit）",
+        "手动跑通：在示例目录让 agent 读文件、写新文件、运行一个构建/测试命令",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "可选 Langfuse 监控集成",
+      "description": "As a developer, I want 把 agent 的调用链上报到 Langfuse so that 我能观测每次 LLM 调用与工具执行，便于调试和学习。",
+      "acceptanceCriteria": [
+        "通过配置（publicKey、secretKey、baseURL）启用 Langfuse；三者缺失时自动跳过且程序正常运行",
+        "启用时用 langfuse-langchain 的 CallbackHandler 将 LLM 调用与工具执行链路上报",
+        "未配置 Langfuse 不引入运行时错误、不阻塞主流程",
+        "README 说明如何配置 Langfuse（可选）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "文档与示例",
+      "description": "As a learner, I want 一份说明文档和可复现的示例 so that 我能理解每个模块并自己扩展。",
+      "acceptanceCriteria": [
+        "README.md：安装、配置、运行步骤，架构说明（状态图、工具、授权流、Langfuse）",
+        "提供 examples/ 示例工作目录供 agent 操作演示",
+        "关键模块（图、工具、授权、provider）有中文解释性注释",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -1,0 +1,186 @@
+/**
+ * 配置加载模块
+ *
+ * 职责：把「命令行运行时所需的所有配置」从两处来源合并成一个强类型对象：
+ *   1. 工作目录下的 config.json（可选，结构化配置）
+ *   2. 环境变量 / .env 文件（敏感信息如 apiKey 优先放这里）
+ *
+ * 合并优先级：环境变量 > config.json > 内置默认值。
+ * 这样 apiKey 之类的密钥可以只放在 .env 里，不必写进会被提交的 config.json。
+ */
+
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { resolve, join } from "node:path";
+import dotenv from "dotenv";
+
+// 启动时加载 .env 文件（若存在），把其中的键值写入 process.env
+dotenv.config();
+
+/** 支持的 LLM provider 类型。初版只实现 anthropic，其余为后续扩展预留。 */
+export type ProviderType = "anthropic" | "openai" | "ollama";
+
+/** LLM provider 相关配置 */
+export interface ProviderConfig {
+  /** provider 类型，默认 anthropic */
+  type: ProviderType;
+  /** API 密钥（建议放 .env，不要写进 config.json） */
+  apiKey: string;
+  /** 自定义 API base url，可选，用于代理或兼容网关 */
+  baseURL?: string;
+  /** 模型名称，默认 claude-sonnet-4-6 */
+  model: string;
+}
+
+/** Langfuse 监控配置（全部可选；缺失则自动关闭监控） */
+export interface LangfuseConfig {
+  publicKey?: string;
+  secretKey?: string;
+  baseURL?: string;
+}
+
+/** Agent 运行时整体配置 */
+export interface AppConfig {
+  /** LLM provider 配置 */
+  provider: ProviderConfig;
+  /** Agent 可操作的工作目录（绝对路径），所有文件/命令操作被限制在此目录内 */
+  workdir: string;
+  /** 命令执行超时时间（毫秒），默认 30000 */
+  commandTimeoutMs: number;
+  /** read_file 默认最多读取的行数，默认 2000 */
+  readFileMaxLines: number;
+  /** run_command 输出的字节预算，默认 30KB */
+  commandOutputMaxBytes: number;
+  /** Agent 主循环最大迭代次数，防止无限工具调用，默认 25 */
+  maxIterations: number;
+  /** Langfuse 监控配置（可选） */
+  langfuse?: LangfuseConfig;
+}
+
+/** config.json 的结构（所有字段均可选，缺失时回落到默认值或环境变量） */
+interface RawConfigFile {
+  provider?: Partial<ProviderConfig>;
+  workdir?: string;
+  commandTimeoutMs?: number;
+  readFileMaxLines?: number;
+  commandOutputMaxBytes?: number;
+  maxIterations?: number;
+  langfuse?: LangfuseConfig;
+}
+
+/** 内置默认值 */
+const DEFAULTS = {
+  providerType: "anthropic" as ProviderType,
+  model: "claude-sonnet-4-6",
+  commandTimeoutMs: 30_000,
+  readFileMaxLines: 2000,
+  commandOutputMaxBytes: 30 * 1024,
+  maxIterations: 25,
+};
+
+/**
+ * 读取 config.json（若存在）。文件不存在时返回空对象，不报错。
+ * @param cwd 当前工作目录
+ */
+function readConfigFile(cwd: string): RawConfigFile {
+  const configPath = join(cwd, "config.json");
+  if (!existsSync(configPath)) {
+    return {};
+  }
+  try {
+    const text = readFileSync(configPath, "utf-8");
+    return JSON.parse(text) as RawConfigFile;
+  } catch (err) {
+    throw new Error(
+      `解析 config.json 失败（${configPath}）：${(err as Error).message}`,
+    );
+  }
+}
+
+/**
+ * 加载并校验完整配置。
+ *
+ * @param cwd 进程当前工作目录，默认 process.cwd()
+ * @returns 合并后的强类型配置对象
+ * @throws 当缺少必需的 apiKey 时抛出明确错误
+ */
+export function loadConfig(cwd: string = process.cwd()): AppConfig {
+  const file = readConfigFile(cwd);
+
+  // provider 类型：环境变量 > config.json > 默认 anthropic
+  const providerType = (process.env.PROVIDER_TYPE ??
+    file.provider?.type ??
+    DEFAULTS.providerType) as ProviderType;
+
+  // apiKey：优先环境变量（不同 provider 用各自惯用的环境变量名）
+  const apiKey =
+    process.env.ANTHROPIC_API_KEY ??
+    process.env.LLM_API_KEY ??
+    file.provider?.apiKey ??
+    "";
+
+  const baseURL =
+    process.env.ANTHROPIC_BASE_URL ??
+    process.env.LLM_BASE_URL ??
+    file.provider?.baseURL;
+
+  const model =
+    process.env.LLM_MODEL ?? file.provider?.model ?? DEFAULTS.model;
+
+  // 工作目录：环境变量 > config.json > 当前目录；统一转为绝对路径
+  const workdir = resolve(
+    process.env.WORKDIR ?? file.workdir ?? cwd,
+  );
+
+  // Langfuse 配置：三个字段任意来源，缺失则后续判定为关闭
+  const langfuse: LangfuseConfig = {
+    publicKey: process.env.LANGFUSE_PUBLIC_KEY ?? file.langfuse?.publicKey,
+    secretKey: process.env.LANGFUSE_SECRET_KEY ?? file.langfuse?.secretKey,
+    baseURL: process.env.LANGFUSE_BASE_URL ?? file.langfuse?.baseURL,
+  };
+
+  const config: AppConfig = {
+    provider: { type: providerType, apiKey, baseURL, model },
+    workdir,
+    commandTimeoutMs: file.commandTimeoutMs ?? DEFAULTS.commandTimeoutMs,
+    readFileMaxLines: file.readFileMaxLines ?? DEFAULTS.readFileMaxLines,
+    commandOutputMaxBytes:
+      file.commandOutputMaxBytes ?? DEFAULTS.commandOutputMaxBytes,
+    maxIterations: file.maxIterations ?? DEFAULTS.maxIterations,
+    langfuse: isLangfuseEnabled(langfuse) ? langfuse : undefined,
+  };
+
+  validateConfig(config);
+  return config;
+}
+
+/** 判断 Langfuse 是否配置齐全（publicKey + secretKey 必须都有才算启用） */
+export function isLangfuseEnabled(lf: LangfuseConfig | undefined): boolean {
+  return Boolean(lf?.publicKey && lf?.secretKey);
+}
+
+/**
+ * 校验配置的必需项。
+ * 当前仅 anthropic provider 已实现，且必须提供 apiKey。
+ */
+function validateConfig(config: AppConfig): void {
+  if (config.provider.type === "anthropic" && !config.provider.apiKey) {
+    throw new Error(
+      "缺少 Anthropic API Key。请在 .env 中设置 ANTHROPIC_API_KEY，或在 config.json 的 provider.apiKey 中提供。",
+    );
+  }
+}
+
+/**
+ * 确保工作目录下存在 .litecode/ 目录，用于存放本地设置（如授权规则）。
+ * 目录已存在时不做任何操作。
+ *
+ * @param workdir 工作目录绝对路径
+ * @returns .litecode 目录的绝对路径
+ */
+export function ensureLitecodeDir(workdir: string): string {
+  const dir = join(workdir, ".litecode");
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+  return dir;
+}

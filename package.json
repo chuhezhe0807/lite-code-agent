@@ -1,0 +1,29 @@
+{
+  "name": "lite-code-agent",
+  "version": "0.1.0",
+  "description": "轻量级 code agent，使用 LangGraph + TypeScript 实现，用于学习 Agent 应用开发",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "agent",
+    "langgraph",
+    "code-agent",
+    "llm"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@langchain/anthropic": "^0.3.0",
+    "@langchain/core": "^0.3.0",
+    "@langchain/langgraph": "^0.2.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
