@@ -63,4 +63,13 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；临时脚本（假 prompter）验证 read 放行/a 泛化写 allow/命中 allow 免询问/d 泛化写 deny/命中 deny 拒绝/y 本次允许/n 本次拒绝，持久化与泛化均正确，脚本已删除。
 - 代码全程中文注释。
 
-下一步：US-008 LangGraph Agent 主循环（StateGraph，agent/tools 节点 + 授权拦截 + 最大迭代保护）。
+[2026-06-03] US-008 LangGraph Agent 主循环（StateGraph）— 完成
+- src/agent/graph.ts：createAgentGraph(deps) 构建并编译图。
+  - AgentState：messages（messagesStateReducer 累积）+ iterations（替换，用于迭代保护）。
+  - agent 节点：首轮注入 SystemMessage（中文 code agent 定位），model.bindTools 后 invoke，iterations+1。
+  - tools 节点：逐 tool_call 查 specByName → manager.authorize 拦截 → 允许则 spec.tool.invoke(args, config)（透传 config 携带 AbortSignal 供 US-012），拒绝/未知工具/出错均以 ToolMessage 回传。
+  - 条件边 shouldContinue：无 tool_calls 或 iterations≥maxIterations → END，否则 → tools；tools→agent 成环。
+- 验收：typecheck 通过；脚本化假模型（ScriptedModel，bindTools 返回自身）验证 3 场景：正常 read_file 循环到 END（iter=2、工具消息含内容）/ write_file 授权拒绝回传 reason 且 agent 收尾 / max=2 迭代保护停在 iter=2。脚本已删除。
+- 代码全程中文注释。
+
+下一步：US-009 基于 Ink 的 CLI 交互框架（REPL + 块状渲染 + 把 readline prompter 换成 Ink、驱动 graph）。

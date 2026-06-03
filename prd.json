@@ -139,8 +139,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。StateGraph：agent 节点(bindTools+系统提示)、tools 节点(授权拦截+执行+拒绝/出错回传ToolMessage)、条件边(无tool_calls或超迭代→END)、messages+iterations 状态。假模型脚本验证正常循环/授权拒绝回传/max 迭代保护通过。"
     },
     {
       "id": "US-009",
