@@ -23,8 +23,14 @@ export type ProviderType = "anthropic" | "openai" | "ollama";
 export interface ProviderConfig {
   /** provider 类型，默认 anthropic */
   type: ProviderType;
-  /** API 密钥（建议放 .env，不要写进 config.json） */
+  /** API 密钥（以 x-api-key 头发送，对应 ANTHROPIC_API_KEY） */
   apiKey: string;
+  /**
+   * Auth Token（以 Authorization: Bearer 头发送，对应 ANTHROPIC_AUTH_TOKEN）。
+   * 很多第三方代理 / 网关（如 LiteLLM）用 Bearer 方式鉴权，Claude Code 也用这个变量。
+   * 与 apiKey 二选一即可；同时存在时优先用 authToken（Bearer）。
+   */
+  authToken?: string;
   /** 自定义 API base url，可选，用于代理或兼容网关 */
   baseURL?: string;
   /** 模型名称，默认 claude-sonnet-4-6 */
@@ -118,6 +124,12 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     file.provider?.apiKey ??
     "";
 
+  // authToken：Bearer 鉴权，常用于代理/网关（Claude Code 用 ANTHROPIC_AUTH_TOKEN）
+  const authToken =
+    process.env.ANTHROPIC_AUTH_TOKEN ??
+    process.env.LLM_AUTH_TOKEN ??
+    file.provider?.authToken;
+
   const baseURL =
     process.env.ANTHROPIC_BASE_URL ??
     process.env.LLM_BASE_URL ??
@@ -139,7 +151,7 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
   };
 
   const config: AppConfig = {
-    provider: { type: providerType, apiKey, baseURL, model },
+    provider: { type: providerType, apiKey, authToken, baseURL, model },
     workdir,
     commandTimeoutMs: file.commandTimeoutMs ?? DEFAULTS.commandTimeoutMs,
     readFileMaxLines: file.readFileMaxLines ?? DEFAULTS.readFileMaxLines,
@@ -163,9 +175,13 @@ export function isLangfuseEnabled(lf: LangfuseConfig | undefined): boolean {
  * 当前仅 anthropic provider 已实现，且必须提供 apiKey。
  */
 function validateConfig(config: AppConfig): void {
-  if (config.provider.type === "anthropic" && !config.provider.apiKey) {
+  if (
+    config.provider.type === "anthropic" &&
+    !config.provider.apiKey &&
+    !config.provider.authToken
+  ) {
     throw new Error(
-      "缺少 Anthropic API Key。请在 .env 中设置 ANTHROPIC_API_KEY，或在 config.json 的 provider.apiKey 中提供。",
+      "缺少 Anthropic 凭证。请在 .env 中设置 ANTHROPIC_API_KEY（x-api-key 方式）或 ANTHROPIC_AUTH_TOKEN（Bearer 方式，常用于代理/网关）。",
     );
   }
 }

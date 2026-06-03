@@ -15,18 +15,34 @@ import type { AppConfig, ProviderConfig } from "./config.js";
 
 /**
  * 创建 Anthropic 模型实例。
- * - apiKey / model 来自配置
+ * - apiKey / authToken / model 来自配置
  * - baseURL 可选，映射到 ChatAnthropic 的 anthropicApiUrl（用于代理或兼容网关）
+ * - 鉴权方式：
+ *     - 若配置了 authToken（Bearer），通过 clientOptions.authToken 以 `Authorization: Bearer` 发送，
+ *       这与 Claude Code 对接 LiteLLM 等代理时的行为一致。
+ *     - 否则用 apiKey 以 `x-api-key` 发送。
+ *   ChatAnthropic 构造时要求有一个非空 apiKey（否则报错），因此当只有 authToken 时，
+ *   把 apiKey 也置为该 token 以通过校验（代理收到的 token 一致，不影响鉴权）。
  */
 function createAnthropic(p: ProviderConfig): BaseChatModel {
+  const useBearer = Boolean(p.authToken);
+  // 凭证：有 authToken 时一律用它（忽略可能过期/错误的 apiKey）。
+  // 注意 Anthropic SDK 在 apiKey 与 authToken 同时存在时会同时发送 x-api-key 与 Authorization，
+  // 因此这里让两个头都携带同一个有效凭证，避免把错误的 x-api-key 发给代理。
+  const credential = p.authToken || p.apiKey;
   return new ChatAnthropic({
-    apiKey: p.apiKey,
+    apiKey: credential,
     // model 字段在类型上是受限的 union，但实际接受任意模型字符串，这里安全断言
     model: p.model as unknown as string,
     // 仅在配置了 baseURL 时才传，避免覆盖默认官方地址
     ...(p.baseURL ? { anthropicApiUrl: p.baseURL } : {}),
+    // 有 authToken 时用 Bearer 方式鉴权
+    ...(useBearer ? { clientOptions: { authToken: p.authToken } } : {}),
     // Anthropic 接口必须指定 max_tokens，给一个合理默认值
     maxTokens: 4096,
+    // ChatAnthropic 默认会发送 top_p=-1 / top_k=-1 哨兵值，部分代理（如 LiteLLM）会校验拒绝；
+    // 这里覆盖为 undefined，使其在请求体中被省略，交给模型用自身默认采样。
+    invocationKwargs: { top_p: undefined, top_k: undefined },
   }) as unknown as BaseChatModel;
 }
 

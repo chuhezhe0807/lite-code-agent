@@ -85,4 +85,12 @@ Branch: ralph/lite-code-agent
 - 注意：真实 LLM + 交互式终端的「读文件/写文件/跑命令」端到端跑通需在用户终端用有效 key 运行，会消耗网关 token，尚未实跑。
 - 代码全程中文注释。
 
+[2026-06-03] 修复：支持 ANTHROPIC_AUTH_TOKEN（Bearer）+ 去除 top_p/top_k 哨兵值
+- 现象：用户用 LiteLLM 代理，启动后调用 401（token_not_found）。根因：用户 shell 用 ANTHROPIC_AUTH_TOKEN（Bearer），而我们只读 ANTHROPIC_API_KEY 且把 .env 里的旧 key 当 x-api-key 发。
+- config.ts：ProviderConfig 增 authToken；读 ANTHROPIC_AUTH_TOKEN/LLM_AUTH_TOKEN；校验放宽为 apiKey 或 authToken 二选一。
+- provider.ts：有 authToken 时用 clientOptions.authToken 走 Bearer；凭证统一用 authToken||apiKey（避免把错误 x-api-key 发给代理，因 SDK 会同时发两个头）。
+- provider.ts：invocationKwargs:{top_p:undefined, top_k:undefined} 覆盖 ChatAnthropic 默认的 -1 哨兵（LiteLLM 会校验拒绝 top_p=-1）。
+- .env.example：文档化 API Key / Auth Token 两种方式。
+- 验证（真实代理）：单轮调用返回「你好」；端到端 graph 让真实模型并行调用 list_dir+read_file 并给出中文回答，bindTools/工具调用/主循环全通。
+
 下一步：US-010 思考阶段动画（ink-spinner + 文案轮换 + 已用时计数 + 中断提示文案）。
