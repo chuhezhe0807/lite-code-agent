@@ -78,17 +78,72 @@ function BlockView({ block }: { block: Block }): React.ReactElement {
   }
 }
 
-/** 授权请求展示 */
-function AuthView({ auth }: { auth: AuthRequest }): React.ReactElement {
+/** 一个可选项 */
+interface SelectOption {
+  label: string;
+  value: string;
+}
+
+/**
+ * 方向键选择列表：↑/↓ 移动高亮，Enter 选中。
+ * 仅在挂载时激活按键监听（授权阶段才渲染，故不会与输入框冲突）。
+ */
+function SelectList({
+  options,
+  onSelect,
+}: {
+  options: SelectOption[];
+  onSelect: (value: string) => void;
+}): React.ReactElement {
+  const [index, setIndex] = useState(0);
+  useInput((_char, key) => {
+    if (key.upArrow) {
+      setIndex((i) => (i - 1 + options.length) % options.length);
+    } else if (key.downArrow) {
+      setIndex((i) => (i + 1) % options.length);
+    } else if (key.return) {
+      onSelect(options[index].value);
+    }
+  });
+  return (
+    <Box flexDirection="column">
+      {options.map((opt, i) => (
+        <Text key={opt.value} color={i === index ? "green" : "gray"}>
+          {i === index ? "❯ " : "  "}
+          {opt.label}
+        </Text>
+      ))}
+    </Box>
+  );
+}
+
+/** 不同模式下的授权选项 */
+const DECISION_OPTIONS: SelectOption[] = [
+  { label: "本次允许", value: "y" },
+  { label: "本次拒绝", value: "n" },
+  { label: "始终允许（记住规则）", value: "a" },
+  { label: "始终拒绝（记住规则）", value: "d" },
+];
+const CONFIRM_OPTIONS: SelectOption[] = [
+  { label: "确认写入规则", value: "y" },
+  { label: "不写入", value: "n" },
+];
+
+/** 授权请求展示（方向键选择 + Enter 确认） */
+function AuthView({
+  auth,
+  onSelect,
+}: {
+  auth: AuthRequest;
+  onSelect: (value: string) => void;
+}): React.ReactElement {
+  const options = auth.mode === "decision" ? DECISION_OPTIONS : CONFIRM_OPTIONS;
   return (
     <Box marginTop={1} borderStyle="round" borderColor="yellow" paddingX={1} flexDirection="column">
       <Text color="yellow">需要授权：</Text>
       <Text>{auth.detail}</Text>
-      <Text color="yellow">
-        {auth.mode === "decision"
-          ? "[y]本次允许  [n]本次拒绝  [a]始终允许  [d]始终拒绝"
-          : "[y]确认写入规则  [n]不写入"}
-      </Text>
+      <Text color="gray">（↑/↓ 选择，Enter 确认）</Text>
+      <SelectList options={options} onSelect={onSelect} />
     </Box>
   );
 }
@@ -119,23 +174,14 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
     };
   }, [controller]);
 
-  // auth 阶段捕获按键
-  useInput(
-    (char) => {
-      if (!auth) return;
-      const ch = char.toLowerCase();
-      const valid =
-        auth.mode === "decision"
-          ? ["y", "n", "a", "d"]
-          : ["y", "n"];
-      if (!valid.includes(ch)) return;
-      const req = auth;
-      setAuth(null);
-      setPhase("running");
-      req.resolve(ch);
-    },
-    { isActive: phase === "auth" },
-  );
+  // auth 阶段：用户用方向键选择后回传结果
+  const onAuthSelect = (value: string) => {
+    if (!auth) return;
+    const req = auth;
+    setAuth(null);
+    setPhase("running");
+    req.resolve(value);
+  };
 
   // 处理用户输入提交
   const onSubmit = (value: string) => {
@@ -158,7 +204,9 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
 
       {phase === "running" && <ThinkingIndicator />}
 
-      {phase === "auth" && auth && <AuthView auth={auth} />}
+      {phase === "auth" && auth && (
+        <AuthView auth={auth} onSelect={onAuthSelect} />
+      )}
 
       {phase === "idle" && (
         <Box marginTop={1}>
