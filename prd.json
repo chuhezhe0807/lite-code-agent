@@ -240,8 +240,8 @@
         "Typecheck passes"
       ],
       "priority": 14,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。README 含安装/配置/运行/架构图/工具表/Langfuse 步骤/目录结构/学习要点；examples 演示项目(sum.js+test+package.json+README)，npm test 通过。typecheck 通过。"
     },
     {
       "id": "US-015",

@@ -1,0 +1,8 @@
+{
+  "name": "demo-project",
+  "version": "1.0.0",
+  "description": "供 lite-code-agent 演示读/改/跑命令的示例项目",
+  "scripts": {
+    "test": "node sum.test.js"
+  }
+}

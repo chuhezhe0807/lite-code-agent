@@ -128,4 +128,11 @@ Branch: ralph/lite-code-agent
 - 实际上报需用户起 docker-compose、建项目拿 key 填 .env 后观察（README 在 US-014 写）。
 - 代码全程中文注释。
 
-下一步：US-014 文档与示例（README + examples/）。
+[2026-06-03] US-014 文档与示例 — 完成
+- README.md：特性、安装(pnpm)、配置(.env 两种凭证 + config.json 表)、运行、架构图与说明（主循环/授权/沙箱/UI 桥接）、工具一览表、Langfuse 自托管步骤、目录结构、学习要点。
+- examples/：演示项目 sum.js + sum.test.js + package.json(npm test) + README；`npm test` 实测通过。供 agent 读/改/跑命令练手。
+- 关键模块中文注释此前各故事已完成。
+- 验收：typecheck 通过；examples npm test 通过。
+- 代码全程中文注释。
+
+US-001~US-014 全部完成（14/15）。仅剩 US-015（降低 token 消耗，标记为后续优化项）。核心产品完成。
