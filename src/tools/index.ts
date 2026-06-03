@@ -10,6 +10,7 @@ import type { ToolSpec } from "./types.js";
 import { createReadFileTool } from "./readFile.js";
 import { createListDirTool } from "./listDir.js";
 import { createWriteFileTool } from "./writeFile.js";
+import { createEditFileTool } from "./editFile.js";
 
 export type { ToolSpec, ToolLevel } from "./types.js";
 
@@ -23,6 +24,7 @@ export function createTools(config: AppConfig): ToolSpec[] {
     createReadFileTool(config),
     createListDirTool(config),
     createWriteFileTool(config),
-    // 后续故事在此追加：edit_file / run_command / update_todos
+    createEditFileTool(config),
+    // 后续故事在此追加：run_command / update_todos
   ];
 }

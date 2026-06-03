@@ -39,4 +39,11 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；临时脚本（临时目录）验证 preview/新建/覆盖/越界拒绝（越界文件未创建）均符合预期，脚本已删除。
 - 代码全程中文注释。
 
-下一步：US-005 基于 diff 的局部编辑工具（edit_file，需授权）。
+[2026-06-03] US-005 基于 diff 的局部编辑工具（edit_file，需授权）— 完成
+- src/util/diff.ts：formatReplaceDiff(old,new) 把替换格式化为 -/+ 前缀的可读 diff。
+- src/tools/editFile.ts：edit_file(path, old_string, new_string)，路径校验；old_string 唯一性校验（countOccurrences：0=未找到、>1=不唯一，均报错且不修改）；唯一时 replace 写回；preview() 用 formatReplaceDiff 展示改动并对不唯一情况附警告；level=write。
+- tools/index.ts 注册 edit_file。
+- 验收：typecheck 通过；临时脚本验证唯一替换/未找到/不唯一（文件不被破坏）/越界拒绝/preview diff 与警告均符合预期，脚本已删除。
+- 代码全程中文注释。
+
+下一步：US-006 沙箱命令执行工具（run_command，child_process + 超时 + 输出截断，需授权）。
