@@ -102,8 +102,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。runInSandbox 用 spawn(shell+cwd锁定)，超时 SIGKILL，支持 AbortSignal；truncateHeadTail 头尾截断；run_command 透传 signal、格式化退出码/输出。临时脚本验证 cwd/退出码/超时/中断/截断通过。"
     },
     {
       "id": "US-007",

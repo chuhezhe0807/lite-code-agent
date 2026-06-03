@@ -11,6 +11,7 @@ import { createReadFileTool } from "./readFile.js";
 import { createListDirTool } from "./listDir.js";
 import { createWriteFileTool } from "./writeFile.js";
 import { createEditFileTool } from "./editFile.js";
+import { createRunCommandTool } from "./runCommand.js";
 
 export type { ToolSpec, ToolLevel } from "./types.js";
 
@@ -25,6 +26,7 @@ export function createTools(config: AppConfig): ToolSpec[] {
     createListDirTool(config),
     createWriteFileTool(config),
     createEditFileTool(config),
-    // 后续故事在此追加：run_command / update_todos
+    createRunCommandTool(config),
+    // 后续故事在此追加：update_todos
   ];
 }

@@ -46,4 +46,12 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；临时脚本验证唯一替换/未找到/不唯一（文件不被破坏）/越界拒绝/preview diff 与警告均符合预期，脚本已删除。
 - 代码全程中文注释。
 
-下一步：US-006 沙箱命令执行工具（run_command，child_process + 超时 + 输出截断，需授权）。
+[2026-06-03] US-006 沙箱命令执行工具（run_command，需授权）— 完成
+- src/sandbox/exec.ts：runInSandbox(command, opts) 用 spawn(shell:true, cwd 锁定, stdio 忽略 stdin)；超时 setTimeout→SIGKILL；支持 AbortSignal（abort→SIGKILL，供 US-012 复用）；返回 {stdout,stderr,code,signalName,timedOut,aborted,spawnError}，永不 reject。
+- src/util/truncate.ts：truncateHeadTail 按字节预算保留头 N 行+尾 M 行（默认 50/50），中间省略占位；单行超长退化为字符硬截断。
+- src/tools/runCommand.ts：包装 runInSandbox，从 RunnableConfig 透传 signal；格式化退出码/stdout/stderr（截断），超时/中断状态行；preview 展示完整命令；level=execute。
+- tools/index.ts 注册 run_command。
+- 验收：typecheck 通过；临时脚本验证 cwd 锁定/非零退出码/命令不存在(127)/大输出头尾截断/超时(SIGKILL)/AbortSignal 中断均符合预期，脚本已删除。
+- 代码全程中文注释。
+
+下一步：US-007 模式匹配授权与 settings.local.json 持久化。
