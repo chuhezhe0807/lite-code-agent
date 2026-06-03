@@ -51,8 +51,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。resolveSafePath 路径白名单校验；read_file offset/limit 分页+截断标注；list_dir 目录排前+超 200 项截断。临时脚本验证越界/不存在/分页均通过。"
     },
     {
       "id": "US-004",

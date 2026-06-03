@@ -21,4 +21,14 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；anthropic 正常启动且工具调用支持=是；PROVIDER_TYPE=openai 时报「暂未实现」并退出 1。
 - 代码全程中文注释。
 
-下一步：US-003 只读工具（文件读取分页 + 目录列举）。
+[2026-06-03] US-003 只读工具（文件读取分页 + 目录列举）— 完成
+- 新增直接依赖 zod（用于工具入参 schema）。
+- src/security/path.ts：resolveSafePath() 把相对/绝对路径解析后校验是否在 workdir 内，越界抛 PathAccessError；isPathInside() 布尔版。供所有文件工具复用。
+- src/tools/types.ts：ToolLevel(read/write/execute) 与 ToolSpec(tool+level)。
+- src/tools/readFile.ts：read_file(path, offset?, limit?)，默认 limit=config.readFileMaxLines；截断时尾部标注剩余行数与 offset 续读；处理 ENOENT/EISDIR/越界为可读错误。level=read。
+- src/tools/listDir.ts：list_dir(path?)，目录排前加 "/"，超过 200 项截断并提示；处理 ENOENT/ENOTDIR/越界。level=read。
+- src/tools/index.ts：createTools(config) 聚合带级别的工具数组，后续工具在此追加。
+- 验收：typecheck 通过；临时脚本验证分页/续读/越界拒绝/文件不存在/目录列举/目录越界均符合预期（脚本已删除）。
+- 代码全程中文注释。
+
+下一步：US-004 整文件写入工具（write_file，需授权）。
