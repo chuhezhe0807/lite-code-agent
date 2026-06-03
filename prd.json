@@ -226,8 +226,8 @@
         "Typecheck passes"
       ],
       "priority": 13,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。createLangfuseHandler 仅在 publicKey+secretKey 齐全时建 CallbackHandler，否则 undefined；controller 挂 callbacks 并 flushAsync。docker-compose.yml 本地自托管。工厂测试通过；未配置不报错。实际上报需起 compose+建项目拿 key。"
     },
     {
       "id": "US-014",

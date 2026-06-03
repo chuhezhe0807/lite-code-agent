@@ -3,5 +3,6 @@ dist/
 .env
 config.json
 .litecode/
+.dockervolumes/
 *.log
 .DS_Store

@@ -26,6 +26,8 @@ import type { LocalSettings } from "../permissions/settings.js";
 import { createPermissionManager } from "../permissions/manager.js";
 import type { AuthPrompter, AuthChoice } from "../permissions/prompter.js";
 import { createAgentGraph } from "../agent/graph.js";
+import { createLangfuseHandler } from "../observability/langfuse.js";
+import type { CallbackHandler } from "langfuse-langchain";
 import type { Block } from "./types.js";
 
 /** 把 LangChain 的 MessageContent（可能是字符串或内容块数组）转为纯文本 */
@@ -56,6 +58,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   private readonly maxIterations: number;
   /** 当前运行的中断控制器（用于 Esc 中断）；空闲时为 null */
   private currentAbort: AbortController | null = null;
+  /** 可选的 Langfuse 监控回调；未配置时为 undefined */
+  private readonly langfuse: CallbackHandler | undefined;
 
   constructor(deps: SessionControllerDeps) {
     super();
@@ -72,6 +76,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
       manager,
       maxIterations: this.maxIterations,
     });
+    // 可选监控：配置齐全才创建，否则 undefined（不影响运行）
+    this.langfuse = createLangfuseHandler(deps.config);
   }
 
   // ===== AuthPrompter 实现（promise-bridge）=====
@@ -123,6 +129,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
           // 留足递归预算：每轮 agent+tools 两步
           recursionLimit: this.maxIterations * 2 + 5,
           signal: abort.signal,
+          // 配置了 Langfuse 才挂回调，把本轮链路上报
+          ...(this.langfuse ? { callbacks: [this.langfuse] } : {}),
         },
       );
 
@@ -153,6 +161,14 @@ export class SessionController extends EventEmitter implements AuthPrompter {
       }
     } finally {
       this.currentAbort = null;
+      // CLI 进程生命周期短，主动 flush 确保本轮链路上报到 Langfuse（失败不影响主流程）
+      if (this.langfuse) {
+        try {
+          await this.langfuse.flushAsync();
+        } catch {
+          /* 监控上报失败静默忽略 */
+        }
+      }
       this.emit("phase", "idle");
     }
   }

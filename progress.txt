@@ -119,4 +119,13 @@ Branch: ralph/lite-code-agent
 
 至此 US-001~US-012 全部完成。剩 US-013（Langfuse 监控）、US-014（文档示例）、US-015（token 优化，后续项）。
 
-下一步：US-013 可选 Langfuse 监控集成。
+[2026-06-03] US-013 可选 Langfuse 监控集成 — 完成
+- 依赖：langfuse-langchain@3.38.20。
+- docker-compose.yml（用户提供）：本地自托管 Langfuse（web http://localhost:3000 + worker/postgres/clickhouse/minio/redis）。.gitignore 加 .dockervolumes/。
+- src/observability/langfuse.ts：createLangfuseHandler(config) —— isLangfuseEnabled（需 publicKey+secretKey）才建 CallbackHandler(baseUrl 默认 localhost:3000)，否则返回 undefined。
+- controller.ts：构造时建 handler；stream config 在有 handler 时挂 callbacks:[handler]；每轮 finally 里 flushAsync（失败静默，不影响主流程）。
+- 验收：typecheck 通过；工厂测试：未配置/仅 publicKey → undefined，齐全 → CallbackHandler 实例。启动 banner 已有「Langfuse 监控: 已启用/未启用」。
+- 实际上报需用户起 docker-compose、建项目拿 key 填 .env 后观察（README 在 US-014 写）。
+- 代码全程中文注释。
+
+下一步：US-014 文档与示例（README + examples/）。
