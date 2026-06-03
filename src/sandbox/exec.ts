@@ -10,6 +10,8 @@
  * 必须配合授权层（US-007）使用。本模块只负责「执行并收集结果」，不做授权判断。
  */
 
+// spawn 用于在沙箱中执行命令，支持超时和外部中断，流式创建子进程，适合长时间、大输出的命令（npm run、shell脚本等）
+// 数据分段返回，不缓存全部输出到内存
 import { spawn } from "node:child_process";
 
 /** 执行选项 */
@@ -73,7 +75,8 @@ export function runInSandbox(
     const child = spawn(command, {
       cwd,
       shell: true,
-      // 不继承 stdin，避免交互式命令挂起
+      // 不继承 stdin，避免交互式命令挂起，其实就是关闭子进程输入，防止命令等待交互卡住
+      // stdio 的三个值分别是：[stdin, stdout, stderr] 标准输入/标准输出/标准错误
       stdio: ["ignore", "pipe", "pipe"],
     });
 
