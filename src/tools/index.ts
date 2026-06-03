@@ -9,6 +9,7 @@ import type { AppConfig } from "../config.js";
 import type { ToolSpec } from "./types.js";
 import { createReadFileTool } from "./readFile.js";
 import { createListDirTool } from "./listDir.js";
+import { createWriteFileTool } from "./writeFile.js";
 
 export type { ToolSpec, ToolLevel } from "./types.js";
 
@@ -21,6 +22,7 @@ export function createTools(config: AppConfig): ToolSpec[] {
   return [
     createReadFileTool(config),
     createListDirTool(config),
-    // 后续故事在此追加：write_file / edit_file / run_command / update_todos
+    createWriteFileTool(config),
+    // 后续故事在此追加：edit_file / run_command / update_todos
   ];
 }

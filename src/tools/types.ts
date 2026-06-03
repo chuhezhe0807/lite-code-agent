@@ -14,8 +14,16 @@ import type { StructuredToolInterface } from "@langchain/core/tools";
 /** 工具授权级别 */
 export type ToolLevel = "read" | "write" | "execute";
 
-/** 工具注册项：工具实例 + 其授权级别 */
+/** 工具注册项：工具实例 + 其授权级别 + 可选的操作预览 */
 export interface ToolSpec {
   tool: StructuredToolInterface;
   level: ToolLevel;
+  /**
+   * 可选：在执行前生成「操作详情」的人类可读描述，供授权层（US-007）展示给用户确认。
+   * 例如 write_file/edit_file 返回内容摘要或 diff，run_command 返回完整命令。
+   * 只读工具无需提供。
+   *
+   * @param args 工具调用的入参（与 tool 的 schema 对应）
+   */
+  preview?: (args: Record<string, unknown>) => string | Promise<string>;
 }

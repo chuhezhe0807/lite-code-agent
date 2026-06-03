@@ -31,4 +31,12 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；临时脚本验证分页/续读/越界拒绝/文件不存在/目录列举/目录越界均符合预期（脚本已删除）。
 - 代码全程中文注释。
 
-下一步：US-004 整文件写入工具（write_file，需授权）。
+[2026-06-03] US-004 整文件写入工具（write_file，需授权）— 完成
+- src/tools/types.ts：ToolSpec 增加可选 preview(args) 钩子，用于授权前展示操作详情（US-007 调用）。
+- src/tools/writeFile.ts：write_file(path, content)，路径校验、自动建父目录、区分新建/覆盖并报告行数变化；preview() 展示「新建/覆盖 + 路径 + 内容前 50 行摘要」；level=write。
+- tools/index.ts 注册 write_file。
+- 注：授权拦截的「询问—等待」交互在 US-007 实现，本故事只做工具本体 + preview 钩子。
+- 验收：typecheck 通过；临时脚本（临时目录）验证 preview/新建/覆盖/越界拒绝（越界文件未创建）均符合预期，脚本已删除。
+- 代码全程中文注释。
+
+下一步：US-005 基于 diff 的局部编辑工具（edit_file，需授权）。

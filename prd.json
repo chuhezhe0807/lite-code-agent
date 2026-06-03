@@ -67,8 +67,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。write_file 路径校验+自动建父目录+新建/覆盖行数报告；ToolSpec 增加 preview 钩子展示路径与内容摘要。授权交互留待 US-007。临时脚本验证新建/覆盖/越界拒绝通过。"
     },
     {
       "id": "US-005",
