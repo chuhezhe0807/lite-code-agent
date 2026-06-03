@@ -181,6 +181,17 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - [ ] 提供一个 `examples/` 示例工作目录供 agent 操作演示。
 - [ ] 关键模块（图、工具、授权、provider、UI）有**中文解释性注释**。
 
+### US-015: 降低 token 消耗（输入/输出优化）
+**Description:** As a 维护者, I want 在不影响功能的前提下减少每轮对话的 token 消耗, so that 长会话/多轮工具调用更省钱。（后续优化项）
+
+**Acceptance Criteria:**
+- [ ] 收紧系统提示：指示模型不复述工具结果、只给精简最终结论，减少冗余**输出** token。
+- [ ] 探测 LLM 网关（如 LiteLLM 代理）是否支持 Anthropic prompt caching；支持则对系统提示 + 工具定义 + 稳定历史加 `cache_control` 以省**输入** token（多轮里最大的杠杆）。
+- [ ] 工具输出预算（`commandOutputMaxBytes` / `readFileMaxLines`）可调小；可选：历史中用过的大工具结果做截断/压缩，避免每轮重发。
+- [ ] 明确（代码/文档）：UI 的展示裁剪（`clampCount`）仅影响显示，**不**减少发给模型的 token。
+
+> 概念澄清（便于后续实现）：① 工具结果是**下一轮的输入 token**（不是模型输出）；② 工具调用参数是模型必需的输出，省不掉；③ 模型每步的解说 prose 才是可省的输出 token；④ 多轮里每轮重发全部历史是输入 token 大头，prompt caching 收益最大。
+
 ## 4. Functional Requirements
 
 - FR-1: 系统必须基于 LangGraph 的 `StateGraph` 实现 agent 主循环，包含 `agent` 与 `tools` 两个核心节点及条件边。
@@ -201,6 +212,7 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - FR-16: 配置（provider、模型、工作目录、超时、白名单、结果预算、Langfuse）必须可通过配置文件 / 环境变量设置。
 - FR-17: 系统必须支持可选的 Langfuse 监控；当 Langfuse 配置缺失时自动跳过且不影响运行。
 - FR-18: 项目代码必须包含中文注释，关键模块（图、工具、授权、provider、UI）需有解释性说明。
+- FR-19:（后续优化）系统应提供降低 token 消耗的手段：精简系统提示、可选 prompt caching、可调的工具输出预算；UI 展示裁剪不得与 token 用量混淆。
 
 ## 5. Non-Goals（明确不做）
 
