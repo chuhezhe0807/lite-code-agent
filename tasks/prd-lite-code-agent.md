@@ -120,17 +120,50 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - [ ] 有最大迭代次数保护，防止无限循环。
 - [ ] Typecheck 通过。
 
-### US-009: CLI 交互界面
-**Description:** As a user, I want 一个命令行对话界面, so that 我可以像用 Claude Code 一样输入任务并看到 agent 的工作过程。
+### US-009: 基于 Ink 的 CLI 交互框架
+**Description:** As a user, I want 一个用 Ink 渲染的命令行界面, so that 我能像用 Claude Code 一样输入任务、看到美化的过程展示。
 
 **Acceptance Criteria:**
-- [ ] 启动后进入 REPL 循环：读取用户输入 → 运行 agent → 打印结果 → 等待下一条。
-- [ ] 采用**分步骤块状展示**（非流式 token）：每一步打印一个块 —— agent 思考 / 工具调用（名称+参数）/ 工具结果。
-- [ ] 授权提示在终端内交互（见 US-007）。
+- [ ] 引入 `ink`、`react`、`ink-text-input` 依赖，用 Ink App 渲染主界面。
+- [ ] REPL 循环：输入任务（`ink-text-input` 或 `useInput`）→ 运行 agent → 渲染过程 → 等待下一条。
+- [ ] 工具调用渲染为带边框/颜色的块：工具名 + 参数（高亮）+ 结果（截断后）。
+- [ ] 渲染层从命令式 `console.log` 改为状态驱动的 React 组件；agent 事件通过回调/事件流推给 UI。
+- [ ] agent 运行期间禁用输入框，结束后恢复。
+- [ ] 授权提示在 Ink 界面内交互（见 US-007）。
 - [ ] 支持退出命令（如 `/exit`）。
 - [ ] 在一个示例项目目录上手动跑通：让 agent 读文件、写一个新文件、运行一个构建/测试命令。
 
-### US-010: 可选 Langfuse 监控集成
+### US-010: 思考阶段动画
+**Description:** As a user, I want 在 agent 等待 LLM 响应时看到动态指示, so that 我知道它在工作而不是卡死（参考 Claude Code）。
+
+**Acceptance Criteria:**
+- [ ] 用 `ink-spinner` 显示旋转动画 + 状态文案（如「思考中…」，可在一组词间轮换：思考中/分析中/规划中）。
+- [ ] 显示已用时计数（秒，每秒刷新，如 `思考中… (3s)`）。
+- [ ] 显示可中断提示文案（如 `按 Esc 中断`）；中断功能由 US-012 实现。
+- [ ] LLM 返回后动画消失，进入下一阶段渲染。
+- [ ] 仅用于「等待 LLM」阶段，仍是分步骤块状、非流式 token。
+
+### US-011: Todo 列表实时勾选
+**Description:** As a user, I want agent 维护一个 todo 列表并在 UI 中实时勾选, so that 我能看到任务拆解与进度（参考 Claude Code 的 TodoWrite）。
+
+**Acceptance Criteria:**
+- [ ] 新增 `update_todos` 工具：agent 主动传入 todo 项及其状态（pending / in_progress / completed）。
+- [ ] todo 状态进入 LangGraph 图状态，与对话消息一起流转。
+- [ ] Ink 渲染列表，状态字形：`○` 待办 / `◐`（或 spinner）进行中 / `✓` 已完成（绿色）。
+- [ ] agent 更新某项状态时列表**原地刷新**，不重复打印整段。
+- [ ] 只有 agent 调用 `update_todos` 才产生 todo，不由 UI 自动推断。
+
+### US-012: Esc 中断运行中的 agent
+**Description:** As a user, I want 按 Esc 中断正在进行的 agent 运行, so that 我能在它跑偏或耗时过长时及时叫停。
+
+**Acceptance Criteria:**
+- [ ] 用 `AbortController`/`AbortSignal` 贯穿 agent 主循环（LLM 调用与工具执行均可被取消）。
+- [ ] Ink 界面监听 Esc 键（`useInput`），触发 abort。
+- [ ] 中断后停止当前迭代，向用户显示「已中断」并恢复输入框等待下一条。
+- [ ] 中断时正在执行的 `run_command` 子进程被杀掉（复用超时杀进程逻辑）。
+- [ ] 中断不导致程序崩溃，状态可继续下一轮对话。
+
+### US-013: 可选 Langfuse 监控集成
 **Description:** As a developer, I want 把 agent 的调用链上报到 Langfuse, so that 我能观测每次 LLM 调用与工具执行，便于调试和学习。
 
 **Acceptance Criteria:**
@@ -140,13 +173,13 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - [ ] README 说明如何配置 Langfuse（可选）。
 - [ ] Typecheck 通过。
 
-### US-011: 文档与示例
+### US-014: 文档与示例
 **Description:** As a learner, I want 一份说明文档和可复现的示例, so that 我能理解每个模块并自己扩展。
 
 **Acceptance Criteria:**
-- [ ] `README.md`：安装、配置、运行步骤，架构图/说明（状态图、工具、授权流、Langfuse）。
+- [ ] `README.md`：安装、配置、运行步骤，架构图/说明（状态图、工具、授权流、Ink UI、Langfuse）。
 - [ ] 提供一个 `examples/` 示例工作目录供 agent 操作演示。
-- [ ] 关键模块（图、工具、授权、provider）有**中文解释性注释**。
+- [ ] 关键模块（图、工具、授权、provider、UI）有**中文解释性注释**。
 
 ## 4. Functional Requirements
 
@@ -160,11 +193,14 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - FR-8: 授权交互必须支持「本次允许 / 本次拒绝 / 始终允许（写入 allow 规则）/ 始终拒绝（写入 deny 规则）」，并把当前调用泛化为可复用的模式规则持久化。
 - FR-9: 用户拒绝某操作时，系统必须把拒绝信息作为工具结果回传给 agent，而不是终止程序。
 - FR-10: 系统必须通过工厂模式支持可切换的 LLM provider，默认 **Anthropic**，默认 model `claude-sonnet-4-6`，支持 `apiKey` / `baseURL` / `model` 配置。
-- FR-11: 系统必须提供 CLI REPL 交互界面，采用分步骤块状展示 agent 的思考、工具调用与结果（非流式 token）。
-- FR-12: 系统必须有最大迭代次数限制以防止无限工具调用循环。
-- FR-13: 配置（provider、模型、工作目录、超时、白名单、结果预算、Langfuse）必须可通过配置文件 / 环境变量设置。
-- FR-14: 系统必须支持可选的 Langfuse 监控；当 Langfuse 配置缺失时自动跳过且不影响运行。
-- FR-15: 项目代码必须包含中文注释，关键模块（图、工具、授权、provider）需有解释性说明。
+- FR-11: 系统必须提供基于 **Ink** 的 CLI REPL 交互界面，采用状态驱动的分步骤块状展示（非流式 token）。
+- FR-12: 系统必须在等待 LLM 响应时显示思考动画（spinner + 文案 + 已用时计数 + 中断提示）。
+- FR-13: 系统必须提供 `update_todos` 工具，由 agent 主动维护 todo 列表，并在 UI 中以 ○/◐/✓ 实时勾选；todo 状态纳入图状态。
+- FR-14: 系统必须支持按 Esc 中断运行中的 agent：用 AbortController 贯穿主循环，取消 LLM/工具执行并杀掉运行中的子进程，中断后可继续下一轮对话。
+- FR-15: 系统必须有最大迭代次数限制以防止无限工具调用循环。
+- FR-16: 配置（provider、模型、工作目录、超时、白名单、结果预算、Langfuse）必须可通过配置文件 / 环境变量设置。
+- FR-17: 系统必须支持可选的 Langfuse 监控；当 Langfuse 配置缺失时自动跳过且不影响运行。
+- FR-18: 项目代码必须包含中文注释，关键模块（图、工具、授权、provider、UI）需有解释性说明。
 
 ## 5. Non-Goals（明确不做）
 
@@ -178,7 +214,9 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 
 ## 6. Technical Considerations
 
-- **依赖**：`@langchain/langgraph`、`@langchain/core`、`@langchain/anthropic`（默认 provider）；可选 `langfuse-langchain`（监控）；运行用 `tsx`，类型检查用 `typescript`。预留 `@langchain/openai` / `@langchain/ollama` 作为后续扩展。
+- **依赖**：`@langchain/langgraph`、`@langchain/core`、`@langchain/anthropic`（默认 provider）；CLI UI 用 `ink`、`react`、`ink-spinner`、`ink-text-input`、`@types/react`；可选 `langfuse-langchain`（监控）；运行用 `tsx`，类型检查用 `typescript`。预留 `@langchain/openai` / `@langchain/ollama` 作为后续扩展。
+- **Ink UI**：渲染层从 `console.log` 改为声明式 React 组件，状态驱动；agent 的事件（思考开始/结束、工具调用、todo 更新）通过回调/事件流推给 Ink App。思考动画用 `ink-spinner`；todo 列表原地刷新。
+- **中断**：`AbortController` 在 CLI 层创建，贯穿 LangGraph 主循环与各工具；Ink 用 `useInput` 监听 Esc 触发 abort，`run_command` 子进程在 abort 时被 kill。
 - **`.litecode/` 目录**：放在工作目录根下，存 `settings.local.json`（授权规则等本地设置），参考 Claude Code；建议加入 `.gitignore`。示例结构：
   ```json
   {
@@ -217,4 +255,4 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - 模式规则的「泛化策略」如何定？例如把 `npx tsc --noEmit` 泛化成 `Bash(npx tsc *)` 的规则——初版可只做简单的「命令首段 + `*`」泛化，并在写入前让用户确认生成的规则文本。
 - 结果预算的具体数值（read 默认行数、run_command 字节上限、头/尾保留行数）取多少合适？建议先用 read 2000 行、run_command 30KB、头 50 行 + 尾 50 行，后续按模型上下文调。
 
-> 已确认决策：支持 `edit_file`（diff 局部编辑）；授权采用 Claude Code 式 `工具名(参数模式)` 模式匹配 + allow/deny，持久化到 `.litecode/settings.local.json`；默认 Anthropic provider，默认 model `claude-sonnet-4-6`；CLI 分步骤块状展示；工具结果按预算截断（read 分页 / exec 头尾保留）；可选 Langfuse 监控。
+> 已确认决策：支持 `edit_file`（diff 局部编辑）；授权采用 Claude Code 式 `工具名(参数模式)` 模式匹配 + allow/deny，持久化到 `.litecode/settings.local.json`；默认 Anthropic provider，默认 model `claude-sonnet-4-6`；CLI 用 **Ink** 渲染（思考动画 + todo 实时勾选 + Esc 中断），分步骤块状、非流式；todo 由 agent 主动调 `update_todos` 工具维护（不自动推断）；工具结果按预算截断（read 分页 / exec 头尾保留）；可选 Langfuse 监控。

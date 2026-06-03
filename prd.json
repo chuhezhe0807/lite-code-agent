@@ -144,12 +144,15 @@
     },
     {
       "id": "US-009",
-      "title": "CLI 交互界面（分步骤块状展示）",
-      "description": "As a user, I want 一个命令行对话界面 so that 我可以像用 Claude Code 一样输入任务并看到 agent 的工作过程。",
+      "title": "基于 Ink 的 CLI 交互框架",
+      "description": "As a user, I want 一个用 Ink 渲染的命令行界面 so that 我能像用 Claude Code 一样输入任务、看到美化的过程展示。",
       "acceptanceCriteria": [
-        "启动后进入 REPL 循环：读取输入 → 运行 agent → 打印结果 → 等待下一条",
-        "分步骤块状展示（非流式 token）：每步打印一个块（思考 / 工具调用名称+参数 / 工具结果）",
-        "授权提示在终端内交互（对接 US-007）",
+        "引入 ink、react、ink-text-input 依赖，用 Ink App 渲染主界面",
+        "REPL 循环：输入任务（ink-text-input 或 useInput）→ 运行 agent → 渲染过程 → 等待下一条",
+        "工具调用渲染为带边框/颜色的块：工具名 + 参数（高亮）+ 结果（截断后）",
+        "渲染层从 console.log 改为状态驱动的 React 组件；agent 事件通过回调/事件流推给 UI",
+        "agent 运行期间禁用输入框，结束后恢复",
+        "授权提示在 Ink 界面内交互（对接 US-007）",
         "支持退出命令（如 /exit）",
         "手动跑通：在示例目录让 agent 读文件、写新文件、运行一个构建/测试命令",
         "代码含中文注释",
@@ -161,6 +164,57 @@
     },
     {
       "id": "US-010",
+      "title": "思考阶段动画",
+      "description": "As a user, I want 在 agent 等待 LLM 响应时看到动态指示 so that 我知道它在工作而不是卡死（参考 Claude Code）。",
+      "acceptanceCriteria": [
+        "用 ink-spinner 显示旋转动画 + 状态文案（如「思考中…」，可在一组词间轮换）",
+        "显示已用时计数（秒，每秒刷新，如「思考中… (3s)」）",
+        "显示可中断提示文案（如「按 Esc 中断」），中断功能由 US-012 实现",
+        "LLM 返回后动画消失，进入下一阶段渲染",
+        "仅用于「等待 LLM」阶段，仍是分步骤块状、非流式 token",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Todo 列表实时勾选",
+      "description": "As a user, I want agent 维护一个 todo 列表并在 UI 中实时勾选 so that 我能看到任务拆解与进度（参考 Claude Code TodoWrite）。",
+      "acceptanceCriteria": [
+        "新增 update_todos 工具：agent 主动传入 todo 项及其状态（pending/in_progress/completed）",
+        "todo 状态进入 LangGraph 图状态，与对话消息一起流转",
+        "Ink 渲染列表，状态字形：○ 待办 / ◐（或 spinner）进行中 / ✓ 已完成（绿色）",
+        "agent 更新某项状态时列表原地刷新，不重复打印整段",
+        "只有 agent 调用 update_todos 才产生 todo（不由 UI 自动推断）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Esc 中断运行中的 agent",
+      "description": "As a user, I want 按 Esc 中断正在进行的 agent 运行 so that 我能在它跑偏或耗时过长时及时叫停。",
+      "acceptanceCriteria": [
+        "用 AbortController/AbortSignal 贯穿 agent 主循环（LLM 调用与工具执行均可被取消）",
+        "Ink 界面监听 Esc 键（useInput），触发 abort",
+        "中断后停止当前迭代，向用户显示「已中断」并恢复输入框等待下一条",
+        "中断时正在执行的 run_command 子进程被杀掉（复用超时杀进程逻辑）",
+        "中断不导致程序崩溃，状态可继续下一轮对话",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
       "title": "可选 Langfuse 监控集成",
       "description": "As a developer, I want 把 agent 的调用链上报到 Langfuse so that 我能观测每次 LLM 调用与工具执行，便于调试和学习。",
       "acceptanceCriteria": [
@@ -171,21 +225,21 @@
         "代码含中文注释",
         "Typecheck passes"
       ],
-      "priority": 10,
+      "priority": 13,
       "passes": false,
       "notes": ""
     },
     {
-      "id": "US-011",
+      "id": "US-014",
       "title": "文档与示例",
       "description": "As a learner, I want 一份说明文档和可复现的示例 so that 我能理解每个模块并自己扩展。",
       "acceptanceCriteria": [
-        "README.md：安装、配置、运行步骤，架构说明（状态图、工具、授权流、Langfuse）",
+        "README.md：安装、配置、运行步骤，架构说明（状态图、工具、授权流、Ink UI、Langfuse）",
         "提供 examples/ 示例工作目录供 agent 操作演示",
-        "关键模块（图、工具、授权、provider）有中文解释性注释",
+        "关键模块（图、工具、授权、provider、UI）有中文解释性注释",
         "Typecheck passes"
       ],
-      "priority": 11,
+      "priority": 14,
       "passes": false,
       "notes": ""
     }
