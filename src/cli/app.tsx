@@ -15,6 +15,7 @@ import { Box, Text, useApp, useInput, render } from "ink";
 import TextInput from "ink-text-input";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
+import { ThinkingIndicator } from "./thinking.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
 const MAX_BLOCK_COUNT = 100;
@@ -155,11 +156,7 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
         <BlockView key={i} block={b} />
       ))}
 
-      {phase === "running" && (
-        <Box marginTop={1}>
-          <Text color="yellow">运行中…</Text>
-        </Box>
-      )}
+      {phase === "running" && <ThinkingIndicator />}
 
       {phase === "auth" && auth && <AuthView auth={auth} />}
 

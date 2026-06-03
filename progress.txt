@@ -93,4 +93,11 @@ Branch: ralph/lite-code-agent
 - .env.example：文档化 API Key / Auth Token 两种方式。
 - 验证（真实代理）：单轮调用返回「你好」；端到端 graph 让真实模型并行调用 list_dir+read_file 并给出中文回答，bindTools/工具调用/主循环全通。
 
-下一步：US-010 思考阶段动画（ink-spinner + 文案轮换 + 已用时计数 + 中断提示文案）。
+[2026-06-03] US-010 思考阶段动画 — 完成
+- 依赖：ink-spinner@5.0.0。
+- src/cli/thinking.tsx：ThinkingIndicator 组件 = Spinner(dots) + 文案轮换（思考中/分析中/规划中/处理中，每 2s 切换）+ 已用时计数（每秒 +1）+「按 Esc 中断」提示文案（实际中断 US-012 做）。仅在 running 阶段挂载，故每次运行重新计时。
+- app.tsx：running 阶段用 <ThinkingIndicator /> 替换原静态「运行中…」。
+- 验收：typecheck 通过；导入解析正常（ink-spinner 在 pnpm 下可用）。动画实际效果需在真实终端观察。
+- 代码全程中文注释。
+
+下一步：US-011 Todo 列表实时勾选（update_todos 工具 + 图状态 + Ink 渲染 ○/◐/✓）。
