@@ -193,8 +193,8 @@
         "Typecheck passes"
       ],
       "priority": 11,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。update_todos 工具(level=read 免授权)；图状态增 todos，tools 节点识别该调用写回；controller 发 'todos' 事件；TodoView 渲染 ○/◐/✓。脚本化模型验证图状态与事件流通过。授权交互另改为方向键选择(SelectList)。"
     },
     {
       "id": "US-012",

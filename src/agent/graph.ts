@@ -32,7 +32,8 @@ import {
 } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { RunnableConfig } from "@langchain/core/runnables";
-import type { ToolSpec } from "../tools/index.js";
+import type { ToolSpec, Todo } from "../tools/index.js";
+import { UPDATE_TODOS_NAME, parseTodos } from "../tools/updateTodos.js";
 import type { PermissionManager } from "../permissions/manager.js";
 
 /** 默认系统提示：把模型定位成一个谨慎的本地代码助手 */
@@ -57,6 +58,11 @@ export const AgentState = Annotation.Root({
   iterations: Annotation<number>({
     reducer: (_prev, next) => next,
     default: () => 0,
+  }),
+  // agent 维护的任务清单：update_todos 调用整体覆盖（reducer 取新值）
+  todos: Annotation<Todo[]>({
+    reducer: (_prev, next) => next,
+    default: () => [],
   }),
 });
 
@@ -115,10 +121,17 @@ export function createAgentGraph(deps: AgentGraphDeps) {
     const last = state.messages[state.messages.length - 1] as AIMessage;
     const calls = last.tool_calls ?? [];
     const results: ToolMessage[] = [];
+    // 若本批调用里有 update_todos，收集最新的 todo 列表写回图状态
+    let nextTodos: Todo[] | undefined;
 
     for (const call of calls) {
       const spec = specByName.get(call.name);
       const callId = call.id ?? call.name;
+
+      // update_todos 是「控制类」工具：除了执行返回确认，还要把 todo 写入图状态
+      if (call.name === UPDATE_TODOS_NAME) {
+        nextTodos = parseTodos(call.args);
+      }
 
       if (!spec) {
         results.push(
@@ -165,7 +178,9 @@ export function createAgentGraph(deps: AgentGraphDeps) {
       }
     }
 
-    return { messages: results };
+    return nextTodos !== undefined
+      ? { messages: results, todos: nextTodos }
+      : { messages: results };
   }
 
   /** 条件边：决定 agent 之后去 tools 还是结束 */

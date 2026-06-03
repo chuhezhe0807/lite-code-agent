@@ -100,4 +100,15 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；导入解析正常（ink-spinner 在 pnpm 下可用）。动画实际效果需在真实终端观察。
 - 代码全程中文注释。
 
-下一步：US-011 Todo 列表实时勾选（update_todos 工具 + 图状态 + Ink 渲染 ○/◐/✓）。
+[2026-06-03] 改进：授权交互改为方向键选择
+- app.tsx 新增 SelectList（↑/↓ 移动、Enter 确认）替代单键 y/n/a/d；decision 4 项 / confirm 2 项。
+
+[2026-06-03] US-011 Todo 列表实时勾选 — 完成
+- src/tools/updateTodos.ts：update_todos 工具，agent 传入完整 todo 列表（content+status）；导出 Todo 类型、UPDATE_TODOS_NAME、parseTodos；level=read（免授权，无文件副作用）。
+- graph.ts：AgentState 增 todos 字段（reducer 取新值）；tools 节点识别 update_todos 调用，用 parseTodos 把 todo 写回图状态。
+- controller.ts：stream 循环里 update.todos 触发 'todos' 事件推给 UI。
+- app.tsx：TodoView 渲染 ○ 待办 / ◐ 进行中 / ✓ 已完成（灰/黄/绿）；订阅 'todos' 事件，todos 非空时展示。
+- 验收：typecheck 通过；脚本化模型验证 update_todos → 图状态 todos 正确 → controller 'todos' 事件正确收到。
+- 代码全程中文注释。
+
+下一步：US-012 Esc 中断运行中的 agent（AbortController 贯穿主循环 + Ink useInput 监听 Esc + 杀子进程）。

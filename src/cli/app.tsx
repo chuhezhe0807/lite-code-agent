@@ -15,6 +15,7 @@ import { Box, Text, useApp, useInput, render } from "ink";
 import TextInput from "ink-text-input";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
+import type { Todo } from "../tools/index.js";
 import { ThinkingIndicator } from "./thinking.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
@@ -148,12 +149,37 @@ function AuthView({
   );
 }
 
+/** Todo 列表展示：○ 待办 / ◐ 进行中 / ✓ 已完成 */
+function TodoView({ todos }: { todos: Todo[] }): React.ReactElement {
+  return (
+    <Box marginTop={1} borderStyle="round" borderColor="magenta" paddingX={1} flexDirection="column">
+      <Text color="magenta">任务清单</Text>
+      {todos.map((t, i) => {
+        const glyph =
+          t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○";
+        const color =
+          t.status === "completed"
+            ? "green"
+            : t.status === "in_progress"
+              ? "yellow"
+              : "gray";
+        return (
+          <Text key={i} color={color}>
+            {glyph} {t.content}
+          </Text>
+        );
+      })}
+    </Box>
+  );
+}
+
 /** 主应用组件 */
 function App({ controller }: { controller: SessionController }): React.ReactElement {
   const { exit } = useApp();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [auth, setAuth] = useState<AuthRequest | null>(null);
+  const [todos, setTodos] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
 
   // 订阅 controller 事件
@@ -164,13 +190,16 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
       setAuth(req);
       setPhase("auth");
     };
+    const onTodos = (list: Todo[]) => setTodos(list);
     controller.on("block", onBlock);
     controller.on("phase", onPhase);
     controller.on("auth", onAuth);
+    controller.on("todos", onTodos);
     return () => {
       controller.off("block", onBlock);
       controller.off("phase", onPhase);
       controller.off("auth", onAuth);
+      controller.off("todos", onTodos);
     };
   }, [controller]);
 
@@ -201,6 +230,8 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
       {blocks.map((b, i) => (
         <BlockView key={i} block={b} />
       ))}
+
+      {todos.length > 0 && <TodoView todos={todos} />}
 
       {phase === "running" && <ThinkingIndicator />}
 

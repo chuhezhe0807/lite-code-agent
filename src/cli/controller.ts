@@ -21,7 +21,7 @@ import {
 } from "@langchain/core/messages";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AppConfig } from "../config.js";
-import type { ToolSpec } from "../tools/index.js";
+import type { ToolSpec, Todo } from "../tools/index.js";
 import type { LocalSettings } from "../permissions/settings.js";
 import { createPermissionManager } from "../permissions/manager.js";
 import type { AuthPrompter, AuthChoice } from "../permissions/prompter.js";
@@ -121,11 +121,13 @@ export class SessionController extends EventEmitter implements AuthPrompter {
 
       for await (const step of stream) {
         for (const [node, update] of Object.entries(step)) {
-          const msgs = (update as { messages?: BaseMessage[] })?.messages ?? [];
-          for (const m of msgs) {
+          const u = update as { messages?: BaseMessage[]; todos?: Todo[] };
+          for (const m of u?.messages ?? []) {
             collected.push(m);
             this.renderMessage(node, m);
           }
+          // todo 列表更新（来自 update_todos）实时推给 UI
+          if (u?.todos) this.emit("todos", u.todos);
         }
       }
 

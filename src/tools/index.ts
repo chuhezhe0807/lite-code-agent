@@ -12,8 +12,10 @@ import { createListDirTool } from "./listDir.js";
 import { createWriteFileTool } from "./writeFile.js";
 import { createEditFileTool } from "./editFile.js";
 import { createRunCommandTool } from "./runCommand.js";
+import { createUpdateTodosTool } from "./updateTodos.js";
 
 export type { ToolSpec, ToolLevel } from "./types.js";
+export type { Todo, TodoStatus } from "./updateTodos.js";
 
 /**
  * 根据配置创建全部工具注册项。
@@ -27,6 +29,6 @@ export function createTools(config: AppConfig): ToolSpec[] {
     createWriteFileTool(config),
     createEditFileTool(config),
     createRunCommandTool(config),
-    // 后续故事在此追加：update_todos
+    createUpdateTodosTool(),
   ];
 }
