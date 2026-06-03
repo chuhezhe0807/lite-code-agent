@@ -54,6 +54,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   private history: BaseMessage[] = [];
   private readonly graph: ReturnType<typeof createAgentGraph>;
   private readonly maxIterations: number;
+  /** 当前运行的中断控制器（用于 Esc 中断）；空闲时为 null */
+  private currentAbort: AbortController | null = null;
 
   constructor(deps: SessionControllerDeps) {
     super();
@@ -105,6 +107,10 @@ export class SessionController extends EventEmitter implements AuthPrompter {
     this.pushBlock({ kind: "user", text });
     this.emit("phase", "running");
 
+    // 每轮运行创建独立的中断控制器，signal 透传给图（贯穿 LLM 调用与工具执行）
+    const abort = new AbortController();
+    this.currentAbort = abort;
+
     const human = new HumanMessage(text);
     const inputMessages = [...this.history, human];
     const collected: BaseMessage[] = [human];
@@ -116,6 +122,7 @@ export class SessionController extends EventEmitter implements AuthPrompter {
           streamMode: "updates",
           // 留足递归预算：每轮 agent+tools 两步
           recursionLimit: this.maxIterations * 2 + 5,
+          signal: abort.signal,
         },
       );
 
@@ -131,16 +138,28 @@ export class SessionController extends EventEmitter implements AuthPrompter {
         }
       }
 
-      // 本轮结束，沉淀到历史，供下一轮连续对话
+      // 本轮正常结束，沉淀到历史，供下一轮连续对话
       this.history = [...this.history, ...collected];
     } catch (err) {
-      this.pushBlock({
-        kind: "error",
-        text: `运行出错：${(err as Error).message}`,
-      });
+      if (abort.signal.aborted) {
+        // 被用户中断：提示「已中断」，且不把这半截对话写入历史，
+        // 避免遗留「有 tool_use 却无 tool_result」的悬空消息导致下轮请求 400。
+        this.pushBlock({ kind: "info", text: "已中断。" });
+      } else {
+        this.pushBlock({
+          kind: "error",
+          text: `运行出错：${(err as Error).message}`,
+        });
+      }
     } finally {
+      this.currentAbort = null;
       this.emit("phase", "idle");
     }
+  }
+
+  /** 中断当前正在运行的 agent（Esc 触发）。空闲时无操作。 */
+  abort(): void {
+    this.currentAbort?.abort();
   }
 
   /** 把一条消息翻译成渲染块 */

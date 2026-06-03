@@ -111,4 +111,12 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；脚本化模型验证 update_todos → 图状态 todos 正确 → controller 'todos' 事件正确收到。
 - 代码全程中文注释。
 
-下一步：US-012 Esc 中断运行中的 agent（AbortController 贯穿主循环 + Ink useInput 监听 Esc + 杀子进程）。
+[2026-06-03] US-012 Esc 中断运行中的 agent — 完成
+- controller.ts：每次 submit 建 AbortController，signal 透传给 graph.stream（贯穿 LLM 调用与工具执行）；abort() 方法供 UI 调用；catch 中用 signal.aborted 区分「已中断」与「运行出错」；中断时不写 history（避免悬空 tool_use 导致下轮 400）；finally 清 currentAbort 并回 idle。
+- app.tsx：running 阶段 useInput 监听 key.escape → controller.abort()。
+- 验收：typecheck 通过；脚本化模型(尊重 signal)+run_command sleep 5 验证：700ms 中断 → 子进程被杀(耗时 708ms)、phase running→idle、显示「已中断」、history 不污染。Esc 实体按键需真实终端。
+- 代码全程中文注释。
+
+至此 US-001~US-012 全部完成。剩 US-013（Langfuse 监控）、US-014（文档示例）、US-015（token 优化，后续项）。
+
+下一步：US-013 可选 Langfuse 监控集成。

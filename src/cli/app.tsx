@@ -203,6 +203,14 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
     };
   }, [controller]);
 
+  // running 阶段监听 Esc 中断当前运行
+  useInput(
+    (_char, key) => {
+      if (key.escape) controller.abort();
+    },
+    { isActive: phase === "running" },
+  );
+
   // auth 阶段：用户用方向键选择后回传结果
   const onAuthSelect = (value: string) => {
     if (!auth) return;

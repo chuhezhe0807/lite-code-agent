@@ -210,8 +210,8 @@
         "Typecheck passes"
       ],
       "priority": 12,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。controller 每轮建 AbortController，signal 透传 graph.stream 贯穿 LLM/工具/子进程；abort() + app useInput 监听 Esc；中断显示「已中断」、不污染 history。脚本化模型+sleep 验证 700ms 中断杀子进程、恢复 idle 通过。Esc 实体按键需真实终端。"
     },
     {
       "id": "US-013",
