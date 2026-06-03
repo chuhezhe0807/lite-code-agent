@@ -16,6 +16,21 @@ import TextInput from "ink-text-input";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
 
+/** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
+const MAX_BLOCK_COUNT = 100;
+
+/** 把文本裁剪到最多 maxCount 个字符，超出时追加省略提示 */
+function clampCount(text: string, maxCount = MAX_BLOCK_COUNT): string {
+  if (text.length <= maxCount) {
+    return text;
+  }
+
+  return (
+    text.slice(0, maxCount) +
+    `\n…（共 ${text.length} 个字符，省略 ${text.length - maxCount} 个字符）`
+  );
+}
+
 /** 单个渲染块的展示 */
 function BlockView({ block }: { block: Block }): React.ReactElement {
   switch (block.kind) {
@@ -36,14 +51,14 @@ function BlockView({ block }: { block: Block }): React.ReactElement {
       return (
         <Box marginTop={1} borderStyle="round" borderColor="blue" paddingX={1} flexDirection="column">
           <Text color="blue">⚙ 调用工具：{block.toolName}</Text>
-          <Text color="gray">{block.text}</Text>
+          <Text color="gray">{clampCount(block.text)}</Text>
         </Box>
       );
     case "tool-result":
       return (
         <Box marginLeft={2} flexDirection="column">
           <Text color="green">↳ {block.toolName ?? "结果"}：</Text>
-          <Text color="gray">{block.text}</Text>
+          <Text color="gray">{clampCount(block.text)}</Text>
         </Box>
       );
     case "error":

@@ -15,7 +15,7 @@ import { resolveSafePath, PathAccessError } from "../security/path.js";
 import type { ToolSpec } from "./types.js";
 
 /** 单次最多列举的条目数，超出则截断并提示 */
-const MAX_ENTRIES = 200;
+const MAX_ENTRIES = 5;
 
 const schema = z.object({
   path: z

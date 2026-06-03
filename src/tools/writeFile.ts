@@ -19,7 +19,7 @@ import { resolveSafePath, PathAccessError } from "../security/path.js";
 import type { ToolSpec } from "./types.js";
 
 /** preview 中内容摘要最多展示的行数 */
-const PREVIEW_MAX_LINES = 50;
+const PREVIEW_MAX_LINES = 5;
 
 const schema = z.object({
   path: z.string().describe("要写入的文件路径（相对工作目录或绝对路径）"),
