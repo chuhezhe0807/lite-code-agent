@@ -13,4 +13,12 @@ Branch: ralph/lite-code-agent
 - 验收：`npm run typecheck` 通过；无 apiKey 启动报错退出 1；有 apiKey 正常启动并创建 .litecode/。
 - 代码全程中文注释。
 
-下一步：US-002 可切换的 LLM Provider 抽象（默认 Anthropic）。
+[2026-06-03] US-002 可切换的 LLM Provider 抽象（默认 Anthropic）— 完成
+- 实现 src/provider.ts：createChatModel(config) 工厂，按 provider.type 分发；返回统一的 BaseChatModel。
+- anthropic 分支用 ChatAnthropic：apiKey/model 来自配置，baseURL 映射到 anthropicApiUrl（仅在配置时传），maxTokens 默认 4096。
+- openai/ollama 为扩展点，命中时抛明确「暂未实现」错误；switch default 用 never 做穷尽性检查。
+- src/index.ts 接入工厂：创建模型并校验 model.bindTools 存在（确认支持工具调用），启动概览新增「工具调用支持」行；模型初始化失败时 exit(1)。
+- 验收：typecheck 通过；anthropic 正常启动且工具调用支持=是；PROVIDER_TYPE=openai 时报「暂未实现」并退出 1。
+- 代码全程中文注释。
+
+下一步：US-003 只读工具（文件读取分页 + 目录列举）。

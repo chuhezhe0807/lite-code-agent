@@ -17,8 +17,8 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成并提交（commit 9fcfdc8）。typecheck 通过；无 apiKey 报错、有 apiKey 正常启动并创建 .litecode/。"
     },
     {
       "id": "US-002",
@@ -34,8 +34,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。createChatModel 工厂默认 ChatAnthropic，支持 apiKey/baseURL/model，openai/ollama 留扩展点，bindTools 校验通过。"
     },
     {
       "id": "US-003",

@@ -10,6 +10,7 @@
  */
 
 import { loadConfig, ensureLitecodeDir, isLangfuseEnabled } from "./config.js";
+import { createChatModel } from "./provider.js";
 
 function main(): void {
   let config;
@@ -24,6 +25,17 @@ function main(): void {
   // 确保本地设置目录存在
   const litecodeDir = ensureLitecodeDir(config.workdir);
 
+  // 创建 LLM 模型实例（验证 provider 工厂可用；后续故事会绑定工具并接入主循环）
+  let modelReady = false;
+  try {
+    const model = createChatModel(config);
+    // 校验模型支持工具调用（tool calling），这是 agent 主循环的前提
+    modelReady = typeof model.bindTools === "function";
+  } catch (err) {
+    console.error(`[模型初始化失败] ${(err as Error).message}`);
+    process.exit(1);
+  }
+
   // 打印启动概览，便于确认配置是否符合预期
   console.log("Lite Code Agent 已启动");
   console.log("----------------------------------------");
@@ -36,6 +48,7 @@ function main(): void {
   console.log(
     `Langfuse 监控: ${isLangfuseEnabled(config.langfuse) ? "已启用" : "未启用"}`,
   );
+  console.log(`工具调用支持: ${modelReady ? "是" : "否"}`);
   console.log("----------------------------------------");
   console.log("（脚手架阶段：agent 主循环与 CLI 将在后续故事中接入）");
 }
