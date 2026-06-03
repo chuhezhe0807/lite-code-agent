@@ -54,4 +54,13 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；临时脚本验证 cwd 锁定/非零退出码/命令不存在(127)/大输出头尾截断/超时(SIGKILL)/AbortSignal 中断均符合预期，脚本已删除。
 - 代码全程中文注释。
 
-下一步：US-007 模式匹配授权与 settings.local.json 持久化。
+[2026-06-03] US-007 模式匹配授权与 settings.local.json 持久化 — 完成
+- src/permissions/settings.ts：LocalSettings(permissions.allow/deny)；loadSettings（不存在则写默认）、saveSettings、addRule（去重+持久化）。
+- src/permissions/match.ts：parseRule 解析「工具名(模式)」；matchPattern 把 * 编译为正则做整体匹配（其余字符转义）；matchesAny；generalizeRule（execute=命令首段+ *，write=目录/*）。
+- src/permissions/prompter.ts：AuthPrompter 接口（askDecision y/n/a/d、confirmRule）+ readline 默认实现。依赖注入，US-009 将换 Ink 实现。
+- src/permissions/manager.ts：authorize(spec,args)=read 放行 > deny 拒绝 > allow 放行 > 询问；a/d 泛化规则经 confirmRule 写回；permissionTarget 提取（command>path>JSON）。拒绝带 reason 供 agent。
+- index.ts：启动 loadSettings 并打印 allow/deny 规则数。
+- 验收：typecheck 通过；临时脚本（假 prompter）验证 read 放行/a 泛化写 allow/命中 allow 免询问/d 泛化写 deny/命中 deny 拒绝/y 本次允许/n 本次拒绝，持久化与泛化均正确，脚本已删除。
+- 代码全程中文注释。
+
+下一步：US-008 LangGraph Agent 主循环（StateGraph，agent/tools 节点 + 授权拦截 + 最大迭代保护）。

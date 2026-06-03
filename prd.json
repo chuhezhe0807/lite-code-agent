@@ -122,8 +122,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "已完成。settings.local.json 读写+默认创建；工具名(模式) * 通配匹配；authorize: read放行>deny>allow>询问(y/n/a/d)；a/d 泛化规则经确认写回；prompter 接口注入(readline默认,US-009换Ink)。假 prompter 脚本验证全流程通过。"
     },
     {
       "id": "US-008",

@@ -11,6 +11,7 @@
 
 import { loadConfig, ensureLitecodeDir, isLangfuseEnabled } from "./config.js";
 import { createChatModel } from "./provider.js";
+import { loadSettings } from "./permissions/settings.js";
 
 function main(): void {
   let config;
@@ -22,8 +23,9 @@ function main(): void {
     process.exit(1);
   }
 
-  // 确保本地设置目录存在
+  // 确保本地设置目录存在，并加载授权设置（不存在则创建默认 settings.local.json）
   const litecodeDir = ensureLitecodeDir(config.workdir);
+  const settings = loadSettings(litecodeDir);
 
   // 创建 LLM 模型实例（验证 provider 工厂可用；后续故事会绑定工具并接入主循环）
   let modelReady = false;
@@ -49,6 +51,9 @@ function main(): void {
     `Langfuse 监控: ${isLangfuseEnabled(config.langfuse) ? "已启用" : "未启用"}`,
   );
   console.log(`工具调用支持: ${modelReady ? "是" : "否"}`);
+  console.log(
+    `授权规则     : allow ${settings.permissions.allow.length} 条 / deny ${settings.permissions.deny.length} 条`,
+  );
   console.log("----------------------------------------");
   console.log("（脚手架阶段：agent 主循环与 CLI 将在后续故事中接入）");
 }
