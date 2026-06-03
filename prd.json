@@ -85,7 +85,7 @@
       ],
       "priority": 5,
       "passes": true,
-      "notes": "已完成。edit_file 精确替换 + old_string 唯一性校验（0/多个均报错不改）；formatReplaceDiff 生成 -/+ diff 供 preview。临时脚本验证替换/未找到/不唯一/越界/预览警告通过。"
+      "notes": "已完成。edit_file 精确替换 + old_string 唯一性校验；后续增强：加 replace_all(默认false)——多处相同时唯一性报错引导「补上下文使其唯一」或「replace_all 全替换」(同 Claude Code/Aider 最佳实践)；formatReplaceDiff 生成 diff。各场景验证通过。"
     },
     {
       "id": "US-006",

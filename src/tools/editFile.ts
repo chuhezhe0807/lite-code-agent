@@ -1,12 +1,13 @@
 /**
  * edit_file 工具：对工作目录内已有文件做基于 diff 的局部替换（属「写入」级别，需授权）。
  *
- * 设计要点（参考 Claude Code 的 Edit）：
- *   - 用 old_string → new_string 精确替换，比整文件覆盖更安全、改动更可见。
- *   - old_string 必须在文件中「唯一」：找不到或出现多次都报错且不修改，
- *     强制 agent 提供足够上下文，避免改错位置。
- *   - 路径经 resolveSafePath 校验，越界拒绝。
- *   - preview() 用 formatReplaceDiff 展示将要发生的替换，供授权层确认。
+ * 设计哲学（参考 Claude Code 的 Edit）：
+ *   - 默认要求 old_string 在文件中「唯一」。这不是缺陷而是安全特性：当出现多个相同片段时，
+ *     宁可报错让模型补充上下文，也不要猜着改错地方。
+ *   - 「文件里有多处相同、但只想改某一处」的正解是：在 old_string 里带上周围几行上下文，
+ *     使其唯一，而不是按行号/序号定位（那些方式更脆弱）。
+ *   - 「要改全部相同处」（如重命名变量）的正解是：设置 replace_all=true。
+ *   - 路径经 resolveSafePath 校验，越界拒绝；preview 展示 diff 供授权确认。
  */
 
 import { readFile, writeFile } from "node:fs/promises";
@@ -21,8 +22,14 @@ const schema = z.object({
   path: z.string().describe("要编辑的文件路径（相对工作目录或绝对路径）"),
   old_string: z
     .string()
-    .describe("要被替换的原始文本，必须在文件中唯一出现（含足够上下文）"),
+    .describe(
+      "要被替换的原始文本。默认须在文件中唯一出现；若文件中有多处相同片段而只想改其一，请在此带上周围上下文使其唯一。",
+    ),
   new_string: z.string().describe("替换后的新文本"),
+  replace_all: z
+    .boolean()
+    .optional()
+    .describe("是否替换全部相同片段（用于重命名等场景）。默认 false，只替换唯一的一处。"),
 });
 
 /** 统计 needle 在 haystack 中出现的次数 */
@@ -37,12 +44,16 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-/** 读取文件并校验 old_string 唯一性，返回原内容或一个错误字符串 */
+/**
+ * 读取文件并按 replaceAll 模式校验 old_string。
+ * @returns 成功返回 { text, count }（count 为匹配次数）；否则返回 { error }
+ */
 async function readAndValidate(
   absPath: string,
   displayPath: string,
   oldString: string,
-): Promise<{ text: string } | { error: string }> {
+  replaceAll: boolean,
+): Promise<{ text: string; count: number } | { error: string }> {
   let text: string;
   try {
     text = await readFile(absPath, "utf-8");
@@ -53,16 +64,19 @@ async function readAndValidate(
     return { error: `错误：读取文件失败：${e.message}` };
   }
 
-  const occurrences = countOccurrences(text, oldString);
-  if (occurrences === 0) {
+  const count = countOccurrences(text, oldString);
+  if (count === 0) {
     return { error: `错误：在 '${displayPath}' 中未找到 old_string，未做修改。` };
   }
-  if (occurrences > 1) {
+  if (count > 1 && !replaceAll) {
     return {
-      error: `错误：old_string 在 '${displayPath}' 中出现了 ${occurrences} 次，不唯一。请提供更多上下文以唯一定位，未做修改。`,
+      error:
+        `错误：old_string 在 '${displayPath}' 中出现了 ${count} 次，不唯一，未做修改。` +
+        `若只想改其中一处，请在 old_string 中带上周围上下文使其唯一；` +
+        `若想全部替换，请设置 replace_all=true。`,
     };
   }
-  return { text };
+  return { text, count };
 }
 
 /**
@@ -73,6 +87,7 @@ export function createEditFileTool(config: AppConfig): ToolSpec {
   const editFileTool = tool(
     async (input): Promise<string> => {
       const { path, old_string, new_string } = input;
+      const replaceAll = input.replace_all ?? false;
 
       // 1. 路径安全校验
       let absPath: string;
@@ -83,33 +98,38 @@ export function createEditFileTool(config: AppConfig): ToolSpec {
         throw err;
       }
 
-      // 2. 读取并校验 old_string 唯一性
-      const res = await readAndValidate(absPath, path, old_string);
+      // 2. 读取并按模式校验
+      const res = await readAndValidate(absPath, path, old_string, replaceAll);
       if ("error" in res) return res.error;
 
-      // 3. 执行替换并写回
-      const updated = res.text.replace(old_string, new_string);
+      // 3. 执行替换并写回（replaceAll 用 split/join 做字面量全替换）
+      const updated = replaceAll
+        ? res.text.split(old_string).join(new_string)
+        : res.text.replace(old_string, new_string);
       try {
         await writeFile(absPath, updated, "utf-8");
       } catch (err) {
         return `错误：写入文件失败：${(err as Error).message}`;
       }
 
-      return `已编辑 '${path}'：替换了 1 处。`;
+      return replaceAll
+        ? `已编辑 '${path}'：替换了全部 ${res.count} 处。`
+        : `已编辑 '${path}'：替换了 1 处。`;
     },
     {
       name: "edit_file",
       description:
-        "对已有文件做局部替换（old_string → new_string）。old_string 必须在文件中唯一出现。需要用户授权。",
+        "对已有文件做局部替换（old_string → new_string）。默认 old_string 须唯一（多处相同时请带上下文使其唯一）；设 replace_all=true 可替换全部。需要用户授权。",
       schema,
     },
   );
 
-  /** 授权前预览：展示路径与将要发生的 diff（含唯一性校验提示） */
+  /** 授权前预览：展示路径、替换范围与 diff（含校验提示） */
   const preview: ToolSpec["preview"] = async (args) => {
     const path = String(args.path ?? "");
     const oldString = String(args.old_string ?? "");
     const newString = String(args.new_string ?? "");
+    const replaceAll = Boolean(args.replace_all);
 
     let absPath: string;
     try {
@@ -120,10 +140,11 @@ export function createEditFileTool(config: AppConfig): ToolSpec {
     }
 
     const diff = formatReplaceDiff(oldString, newString);
-    // 预览时顺带提示唯一性问题，让用户在授权前就能发现改不动的情况
-    const res = await readAndValidate(absPath, path, oldString);
+    const res = await readAndValidate(absPath, path, oldString, replaceAll);
+    const scope =
+      "count" in res && replaceAll ? `（替换全部 ${res.count} 处）` : "";
     const warn = "error" in res ? `\n（注意：${res.error}）` : "";
-    return `【编辑文件】${path}\n--- 改动预览 ---\n${diff}${warn}`;
+    return `【编辑文件】${path}${scope}\n--- 改动预览 ---\n${diff}${warn}`;
   };
 
   return { tool: editFileTool, level: "write", preview };

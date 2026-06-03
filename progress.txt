@@ -136,3 +136,9 @@ Branch: ralph/lite-code-agent
 - 代码全程中文注释。
 
 US-001~US-014 全部完成（14/15）。仅剩 US-015（降低 token 消耗，标记为后续优化项）。核心产品完成。
+
+[2026-06-03] 改进 edit_file：增加 replace_all（最佳实践）
+- 问题：原 edit_file 要求 old_string 唯一，「有多处相同但只改一处」会被卡住。
+- 最佳实践（同 Claude Code/Aider）：唯一性是安全特性，不放宽；只改其一→在 old_string 带上下文使其唯一；改全部→replace_all=true。否决了按行号/序号定位（脆弱）。
+- editFile.ts：schema 加 replace_all(默认 false)；readAndValidate 按模式校验（count>1 且非 replaceAll 才报错）；不唯一的报错改为同时引导「补上下文」或「replace_all」；replaceAll 用 split/join 字面量全替换并报告处数；preview 显示替换范围。
+- 验证：不唯一报错引导 / 带上下文改其一 / replace_all 全替换 / preview 处数，均通过。
