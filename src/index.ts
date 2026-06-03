@@ -1,17 +1,19 @@
 /**
  * Lite Code Agent —— 程序入口
  *
- * 当前阶段（US-001 脚手架）：
- *   - 加载配置（config.json + 环境变量）
- *   - 确保 .litecode/ 目录存在
- *   - 打印启动信息，验证整条配置链路可用
- *
- * 后续故事会在此基础上接入：provider 工厂、工具集、LangGraph 主循环、CLI REPL。
+ * 启动流程：
+ *   1. 加载配置（config.json + 环境变量），校验必需项（如 apiKey）。
+ *   2. 确保 .litecode/ 目录并加载授权设置。
+ *   3. 构建 LLM 模型、工具集、会话控制器（内部组装授权管理器与主循环图）。
+ *   4. 打印启动概览，进入基于 Ink 的 CLI 交互。
  */
 
 import { loadConfig, ensureLitecodeDir, isLangfuseEnabled } from "./config.js";
 import { createChatModel } from "./provider.js";
 import { loadSettings } from "./permissions/settings.js";
+import { createTools } from "./tools/index.js";
+import { SessionController } from "./cli/controller.js";
+import { startCli } from "./cli/app.js";
 
 function main(): void {
   let config;
@@ -27,18 +29,17 @@ function main(): void {
   const litecodeDir = ensureLitecodeDir(config.workdir);
   const settings = loadSettings(litecodeDir);
 
-  // 创建 LLM 模型实例（验证 provider 工厂可用；后续故事会绑定工具并接入主循环）
-  let modelReady = false;
+  // 构建模型与工具
+  let model;
   try {
-    const model = createChatModel(config);
-    // 校验模型支持工具调用（tool calling），这是 agent 主循环的前提
-    modelReady = typeof model.bindTools === "function";
+    model = createChatModel(config);
   } catch (err) {
     console.error(`[模型初始化失败] ${(err as Error).message}`);
     process.exit(1);
   }
+  const tools = createTools(config);
 
-  // 打印启动概览，便于确认配置是否符合预期
+  // 打印启动概览
   console.log("Lite Code Agent 已启动");
   console.log("----------------------------------------");
   console.log(`Provider     : ${config.provider.type}`);
@@ -50,12 +51,22 @@ function main(): void {
   console.log(
     `Langfuse 监控: ${isLangfuseEnabled(config.langfuse) ? "已启用" : "未启用"}`,
   );
-  console.log(`工具调用支持: ${modelReady ? "是" : "否"}`);
   console.log(
     `授权规则     : allow ${settings.permissions.allow.length} 条 / deny ${settings.permissions.deny.length} 条`,
   );
+  console.log("工具         : " + tools.map((t) => t.tool.name).join(", "));
   console.log("----------------------------------------");
-  console.log("（脚手架阶段：agent 主循环与 CLI 将在后续故事中接入）");
+  console.log("输入任务开始对话，/exit 退出。\n");
+
+  // 构建会话控制器并进入 Ink CLI
+  const controller = new SessionController({
+    config,
+    model,
+    tools,
+    settings,
+    litecodeDir,
+  });
+  startCli(controller);
 }
 
 main();

@@ -72,4 +72,17 @@ Branch: ralph/lite-code-agent
 - 验收：typecheck 通过；脚本化假模型（ScriptedModel，bindTools 返回自身）验证 3 场景：正常 read_file 循环到 END（iter=2、工具消息含内容）/ write_file 授权拒绝回传 reason 且 agent 收尾 / max=2 迭代保护停在 iter=2。脚本已删除。
 - 代码全程中文注释。
 
-下一步：US-009 基于 Ink 的 CLI 交互框架（REPL + 块状渲染 + 把 readline prompter 换成 Ink、驱动 graph）。
+[2026-06-03] US-009 基于 Ink 的 CLI 交互框架 — 完成（交互式 TTY 跑通待用户在终端验证）
+- 依赖：ink@5.2.1、react@18.3.1、ink-text-input@6.0.0、@types/react@18.3.30；tsconfig 开启 jsx=react-jsx。
+- src/cli/types.ts：Block（user/ai/tool-call/tool-result/info/error）、AuthRequest（decision/confirm + resolve）、Phase。
+- src/cli/controller.ts：SessionController extends EventEmitter implements AuthPrompter。
+  - promise-bridge：askDecision/confirmRule 发 'auth' 事件并返回 Promise，UI 按键后 resolve。
+  - submit()：graph.stream(updates) 增量运行，renderMessage 把 agent/tools 节点更新转成 block 事件；history 跨轮累积实现连续对话。
+  - 内部用自身作 prompter 装配 manager + graph，解决 graph→manager→prompter→controller 的循环依赖。
+- src/cli/app.tsx：Ink App，订阅 controller 事件渲染 blocks（边框/颜色块状）；idle 显示 TextInput（/exit 退出），auth 用 useInput 捕获 y/n/a/d（confirm 时 y/n），running 显示静态提示（US-010 加动画）。
+- index.ts：装配 model/tools/settings/controller，打印 banner 后 startCli。
+- 验收：typecheck 通过；装配脚本验证 controller 构建 graph、事件订阅、promise-bridge(askDecision→a) 均正常；非 TTY 运行确认 banner + 输入框渲染（raw mode 报错为非 TTY 预期）。
+- 注意：真实 LLM + 交互式终端的「读文件/写文件/跑命令」端到端跑通需在用户终端用有效 key 运行，会消耗网关 token，尚未实跑。
+- 代码全程中文注释。
+
+下一步：US-010 思考阶段动画（ink-spinner + 文案轮换 + 已用时计数 + 中断提示文案）。

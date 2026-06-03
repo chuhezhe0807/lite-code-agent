@@ -159,8 +159,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "代码完成。SessionController(EventEmitter+AuthPrompter promise-bridge) 桥接 graph.stream 与 Ink；app.tsx 块状渲染+TextInput+useInput 授权(y/n/a/d)+/exit。装配/事件/bridge 脚本验证通过；非TTY确认banner+输入框渲染。端到端真实LLM交互需用户在终端用有效key跑通(消耗token,未实跑)。"
     },
     {
       "id": "US-010",
