@@ -126,7 +126,7 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
 
   // authToken：Bearer 鉴权，常用于代理/网关（Claude Code 用 ANTHROPIC_AUTH_TOKEN）
   const authToken =
-    process.env.ANTHROPIC_AUTH_TOKEN ??
+    process.env.ANTHROPIC_LLM_AUTH_TOKEN ??
     process.env.LLM_AUTH_TOKEN ??
     file.provider?.authToken;
 
