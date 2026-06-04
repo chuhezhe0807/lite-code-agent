@@ -11,6 +11,7 @@
 import type { AppConfig } from "../config.js";
 import type { SandboxBackend, SandboxBackendName } from "./types.js";
 import { createNoneBackend } from "./backends/none.js";
+import { createSeatbeltBackend } from "./backends/seatbelt.js";
 
 /** 各平台「理想中最强」的后端。auto 模式据此挑选。 */
 const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
@@ -26,6 +27,7 @@ const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
  */
 const REGISTRY: Partial<Record<SandboxBackendName, () => SandboxBackend>> = {
   none: createNoneBackend,
+  seatbelt: createSeatbeltBackend,
 };
 
 /** 每个后端对应的隔离等级说明（用于展示） */

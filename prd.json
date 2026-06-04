@@ -291,8 +291,8 @@
         "Typecheck passes"
       ],
       "priority": 17,
-      "passes": false,
-      "notes": "首选后端（开发环境为 macOS）。Apple 标 sandbox-exec 为 deprecated 但仍可用，Claude Code/Codex CLI 在用。"
+      "passes": true,
+      "notes": "已完成。backends/seatbelt.ts：isAvailable=darwin+存在/usr/bin/sandbox-exec；wrapCommand 生成 deny-default SBPL profile（process-exec/fork、signal、sysctl-read、mach-lookup、file-read* 全放行、file-write* 仅可写白名单+/dev设备节点、allowNetwork 决定 network*），sbplString 转义+realpath 规范化路径；detect REGISTRY 注册。真机 macOS 验证：auto 选中 seatbelt 未降级；写 cwd 成功（含空格目录 OK）、写 home 外被拒(Operation not permitted, 文件未创建)；普通命令正常；allowNetwork=false 时 curl 退出码6(切网)。typecheck 通过。"
     },
     {
       "id": "US-018",
