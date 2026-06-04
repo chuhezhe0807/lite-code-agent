@@ -11,6 +11,7 @@
 import { loadConfig, ensureLitecodeDir, isLangfuseEnabled } from "./config.js";
 import { createChatModel } from "./provider.js";
 import { loadSettings } from "./permissions/settings.js";
+import { selectSandboxBackend } from "./sandbox/detect.js";
 import { createTools } from "./tools/index.js";
 import { SessionController } from "./cli/controller.js";
 import { startCli } from "./cli/app.js";
@@ -37,7 +38,9 @@ function main(): void {
     console.error(`[模型初始化失败] ${(err as Error).message}`);
     process.exit(1);
   }
-  const tools = createTools(config);
+  // 能力探测：按平台/配置选出实际生效的沙箱后端（不可用则优雅降级到 none）
+  const sandbox = selectSandboxBackend(config);
+  const tools = createTools(config, sandbox.backend);
 
   // 打印启动概览
   console.log("Lite Code Agent 已启动");
@@ -47,6 +50,13 @@ function main(): void {
   console.log(`Base URL     : ${config.provider.baseURL ?? "(默认)"}`);
   console.log(`工作目录     : ${config.workdir}`);
   console.log(`命令超时     : ${config.commandTimeoutMs} ms`);
+  console.log(
+    `沙箱后端     : ${sandbox.backend.name}${sandbox.degraded ? `（降级自 ${sandbox.intended}）` : ""}`,
+  );
+  console.log(`隔离等级     : ${sandbox.isolationLevel}`);
+  if (sandbox.degraded && sandbox.reason) {
+    console.log(`  ⚠ ${sandbox.reason}`);
+  }
   console.log(`本地设置目录 : ${litecodeDir}`);
   console.log(
     `Langfuse 监控: ${isLangfuseEnabled(config.langfuse) ? "已启用" : "未启用"}`,

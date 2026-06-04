@@ -273,8 +273,8 @@
         "Typecheck passes"
       ],
       "priority": 16,
-      "passes": false,
-      "notes": "Epic 跨平台原生沙箱的核心框架。更新 Non-Goal 第1条：从「仅 child_process 学习级隔离」演进为「OS 原生机制隔离（仍不含 Docker/VM/云）」。"
+      "passes": true,
+      "notes": "已完成框架。新增 sandbox/types.ts(SandboxBackend/SandboxPolicy/SandboxCommand)、backends/none.ts(等同现状shell行为)、detect.ts(按平台选最强+REGISTRY+优雅降级+隔离等级)、policy.ts(buildSandboxPolicy:cwd+tmp+~/.npm+~/.cache)；config 加 SandboxConfig(backend auto/none/...、allowNetwork、writablePaths、limits)+env(SANDBOX_BACKEND/SANDBOX_ALLOW_NETWORK)；exec.runInSandbox 改用 backend.wrapCommand；createTools/runCommand 接 backend；index 启动打印后端/隔离等级/降级告警。当前仅 none 实现，auto 在各平台均降级到 none 并告警(待 US-017~019)。typecheck 通过；脚本验证选择/降级/policy/none执行(cwd锁定/退出码/超时SIGKILL/127)全部符合预期。"
     },
     {
       "id": "US-017",

@@ -12,6 +12,7 @@
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import dotenv from "dotenv";
+import type { ResourceLimits, SandboxBackendName } from "./sandbox/types.js";
 
 // 启动时加载 .env 文件（若存在），把其中的键值写入 process.env
 dotenv.config();
@@ -44,6 +45,21 @@ export interface LangfuseConfig {
   baseURL?: string;
 }
 
+/** 沙箱后端选择：auto 按平台自动选最强，none 显式关闭隔离，其余为指定后端 */
+export type SandboxBackendChoice = "auto" | SandboxBackendName;
+
+/** 沙箱配置（US-016） */
+export interface SandboxConfig {
+  /** 后端选择，默认 auto */
+  backend: SandboxBackendChoice;
+  /** 是否允许命令访问网络，默认 true（npm install 等通常需要联网） */
+  allowNetwork: boolean;
+  /** 在默认可写白名单（cwd + tmp + 包管理器缓存）之外额外允许写入的绝对路径 */
+  writablePaths: string[];
+  /** 资源上限（US-020 落地执行；此处为配置占位） */
+  limits: ResourceLimits;
+}
+
 /** Agent 运行时整体配置 */
 export interface AppConfig {
   /** LLM provider 配置 */
@@ -58,6 +74,8 @@ export interface AppConfig {
   commandOutputMaxBytes: number;
   /** Agent 主循环最大迭代次数，防止无限工具调用，默认 25 */
   maxIterations: number;
+  /** 沙箱配置（US-016） */
+  sandbox: SandboxConfig;
   /** Langfuse 监控配置（可选） */
   langfuse?: LangfuseConfig;
 }
@@ -70,6 +88,7 @@ interface RawConfigFile {
   readFileMaxLines?: number;
   commandOutputMaxBytes?: number;
   maxIterations?: number;
+  sandbox?: Partial<SandboxConfig>;
   langfuse?: LangfuseConfig;
 }
 
@@ -81,6 +100,8 @@ const DEFAULTS = {
   readFileMaxLines: 2000,
   commandOutputMaxBytes: 30 * 1024,
   maxIterations: 25,
+  sandboxBackend: "auto" as SandboxBackendChoice,
+  sandboxAllowNetwork: true,
 };
 
 /**
@@ -143,6 +164,19 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     process.env.WORKDIR ?? file.workdir ?? cwd,
   );
 
+  // 沙箱配置：环境变量 > config.json > 默认
+  const sandbox: SandboxConfig = {
+    backend: (process.env.SANDBOX_BACKEND ??
+      file.sandbox?.backend ??
+      DEFAULTS.sandboxBackend) as SandboxBackendChoice,
+    allowNetwork: parseBool(
+      process.env.SANDBOX_ALLOW_NETWORK,
+      file.sandbox?.allowNetwork ?? DEFAULTS.sandboxAllowNetwork,
+    ),
+    writablePaths: file.sandbox?.writablePaths ?? [],
+    limits: file.sandbox?.limits ?? {},
+  };
+
   // Langfuse 配置：三个字段任意来源，缺失则后续判定为关闭
   const langfuse: LangfuseConfig = {
     publicKey: process.env.LANGFUSE_PUBLIC_KEY ?? file.langfuse?.publicKey,
@@ -158,11 +192,21 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     commandOutputMaxBytes:
       file.commandOutputMaxBytes ?? DEFAULTS.commandOutputMaxBytes,
     maxIterations: file.maxIterations ?? DEFAULTS.maxIterations,
+    sandbox,
     langfuse: isLangfuseEnabled(langfuse) ? langfuse : undefined,
   };
 
   validateConfig(config);
   return config;
+}
+
+/** 解析布尔型环境变量；未设置时回落到 fallback。接受 1/true/yes/on（不区分大小写）为真。 */
+function parseBool(raw: string | undefined, fallback: boolean): boolean {
+  if (raw === undefined) return fallback;
+  const v = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(v)) return true;
+  if (["0", "false", "no", "off"].includes(v)) return false;
+  return fallback;
 }
 
 /** 判断 Langfuse 是否配置齐全（publicKey + secretKey 必须都有才算启用） */

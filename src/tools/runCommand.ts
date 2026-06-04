@@ -12,6 +12,8 @@ import { z } from "zod";
 import { tool } from "@langchain/core/tools";
 import type { AppConfig } from "../config.js";
 import { runInSandbox } from "../sandbox/exec.js";
+import { buildSandboxPolicy } from "../sandbox/policy.js";
+import type { SandboxBackend } from "../sandbox/types.js";
 import { truncateHeadTail } from "../util/truncate.js";
 import type { ToolSpec } from "./types.js";
 
@@ -24,8 +26,15 @@ const schema = z.object({
 /**
  * 创建 run_command 工具。
  * @param config 应用配置（提供 workdir、超时、输出预算）
+ * @param backend 选定的沙箱后端（US-016，由启动时能力探测得出）
  */
-export function createRunCommandTool(config: AppConfig): ToolSpec {
+export function createRunCommandTool(
+  config: AppConfig,
+  backend: SandboxBackend,
+): ToolSpec {
+  // 策略只依赖配置，构建一次即可复用
+  const policy = buildSandboxPolicy(config);
+
   const runCommandTool = tool(
     // 第二个参数是 RunnableConfig，可携带 AbortSignal（US-012 透传）
     async (input, runnableConfig): Promise<string> => {
@@ -35,6 +44,8 @@ export function createRunCommandTool(config: AppConfig): ToolSpec {
       const result = await runInSandbox(command, {
         cwd: config.workdir,
         timeoutMs: config.commandTimeoutMs,
+        backend,
+        policy,
         signal,
         // 内存累积上限给到预算的 4 倍，避免超大输出撑爆内存
         maxAccumulateBytes: config.commandOutputMaxBytes * 4,
@@ -74,9 +85,9 @@ export function createRunCommandTool(config: AppConfig): ToolSpec {
     },
   );
 
-  /** 授权前预览：展示将要执行的完整命令 */
+  /** 授权前预览：展示将要执行的完整命令与沙箱后端（完整作用域摘要见 US-021） */
   const preview: ToolSpec["preview"] = (args) => {
-    return `【执行命令】${String(args.command ?? "")}\n（工作目录：${config.workdir}，超时：${config.commandTimeoutMs}ms）`;
+    return `【执行命令】${String(args.command ?? "")}\n（工作目录：${config.workdir}，超时：${config.commandTimeoutMs}ms，沙箱：${backend.name}）`;
   };
 
   return { tool: runCommandTool, level: "execute", preview };
