@@ -13,9 +13,20 @@ import { tool } from "@langchain/core/tools";
 import type { AppConfig } from "../config.js";
 import { runInSandbox } from "../sandbox/exec.js";
 import { buildSandboxPolicy } from "../sandbox/policy.js";
-import type { SandboxBackend } from "../sandbox/types.js";
+import type { ResourceLimits, SandboxBackend } from "../sandbox/types.js";
 import { truncateHeadTail } from "../util/truncate.js";
 import type { ToolSpec } from "./types.js";
+
+/** 把资源上限格式化成人类可读串，全空时显示「未限制」。 */
+function formatLimits(limits: ResourceLimits): string {
+  const parts: string[] = [];
+  if (limits.maxProcesses != null) parts.push(`进程 ${limits.maxProcesses}`);
+  if (limits.cpuTimeSeconds != null) parts.push(`CPU ${limits.cpuTimeSeconds}s`);
+  if (limits.maxMemoryBytes != null) {
+    parts.push(`内存 ${Math.round(limits.maxMemoryBytes / 1024 / 1024)}MB`);
+  }
+  return parts.length > 0 ? parts.join(" / ") : "未限制（仅超时）";
+}
 
 const schema = z.object({
   command: z
@@ -85,9 +96,27 @@ export function createRunCommandTool(
     },
   );
 
-  /** 授权前预览：展示将要执行的完整命令与沙箱后端（完整作用域摘要见 US-021） */
+  /**
+   * 授权前预览（US-021）：除完整命令外，附带沙箱作用域摘要，让用户在批准前看清
+   * 「命令能改动什么」。展示的可写白名单 / 网络 / 资源上限均取自同一个 policy 对象，
+   * 与实际传给后端的策略完全一致，不会误导。
+   */
   const preview: ToolSpec["preview"] = (args) => {
-    return `【执行命令】${String(args.command ?? "")}\n（工作目录：${config.workdir}，超时：${config.commandTimeoutMs}ms，沙箱：${backend.name}）`;
+    const lines: string[] = [];
+    lines.push(`【执行命令】${String(args.command ?? "")}`);
+    lines.push(`工作目录：${config.workdir}`);
+    lines.push(`沙箱后端：${backend.name}`);
+    lines.push(`可写路径：${policy.writablePaths.join("  ") || "(无)"}`);
+    lines.push(`网络：${policy.allowNetwork ? "允许" : "已切断"}`);
+    lines.push(`资源上限：${formatLimits(policy.limits)}`);
+    lines.push(`超时：${config.commandTimeoutMs}ms`);
+    // 降级到 none 时强提示：无任何 OS 级隔离
+    if (backend.name === "none") {
+      lines.push(
+        "⚠ 无沙箱隔离：命令将以当前用户权限直接运行，仅受工作目录白名单与超时约束。",
+      );
+    }
+    return lines.join("\n");
   };
 
   return { tool: runCommandTool, level: "execute", preview };

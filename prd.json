@@ -361,8 +361,8 @@
         "Typecheck passes"
       ],
       "priority": 21,
-      "passes": false,
-      "notes": "把授权层（US-007）与沙箱层打通：弹窗叠加沙箱作用域信息。授权交互为键盘方向键选择（SelectList），非文本输入（旧 readline prompter 已删）。"
+      "passes": true,
+      "notes": "已完成。复用 US-007 授权流，不改判定模型(read放行/execute/write询问已符合Claude Code，manager.authorize 既有逻辑)；仅增强 run_command 的 preview：除完整命令外附沙箱作用域摘要(后端名/可写白名单/网络允许或切断/资源上限formatLimits/超时)，backend=none 时加「⚠ 无沙箱隔离：命令将以当前用户权限直接运行」强提示。展示用的 policy 与传给后端的同一对象，作用域一致不误导。验证(macOS)：read_file.level=read、run_command.level=execute；seatbelt+限制+联网 与 none+无限制+切网 两种 preview 文本正确、none 含强提示。typecheck 通过。"
     }
   ]
 }
