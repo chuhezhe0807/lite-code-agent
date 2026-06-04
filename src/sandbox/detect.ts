@@ -12,6 +12,7 @@ import type { AppConfig } from "../config.js";
 import type { SandboxBackend, SandboxBackendName } from "./types.js";
 import { createNoneBackend } from "./backends/none.js";
 import { createSeatbeltBackend } from "./backends/seatbelt.js";
+import { createBwrapBackend } from "./backends/bwrap.js";
 
 /** 各平台「理想中最强」的后端。auto 模式据此挑选。 */
 const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
@@ -28,6 +29,12 @@ const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
 const REGISTRY: Partial<Record<SandboxBackendName, () => SandboxBackend>> = {
   none: createNoneBackend,
   seatbelt: createSeatbeltBackend,
+  bwrap: createBwrapBackend,
+};
+
+/** 后端不可用时的补充提示（如安装方式），附加到降级原因后。 */
+const UNAVAILABLE_HINT: Partial<Record<SandboxBackendName, string>> = {
+  bwrap: "（安装：Debian/Ubuntu `apt install bubblewrap`，Fedora `dnf install bubblewrap`）",
 };
 
 /** 每个后端对应的隔离等级说明（用于展示） */
@@ -63,7 +70,10 @@ function resolve(
   }
   const backend = factory();
   if (!backend.isAvailable()) {
-    return { reason: `后端 ${name} 在当前机器不可用（缺少依赖或平台不支持）` };
+    const hint = UNAVAILABLE_HINT[name] ?? "";
+    return {
+      reason: `后端 ${name} 在当前机器不可用（缺少依赖或平台不支持）${hint}`,
+    };
   }
   return { backend };
 }

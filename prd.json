@@ -309,8 +309,8 @@
         "Typecheck passes"
       ],
       "priority": 18,
-      "passes": false,
-      "notes": "bubblewrap 是 Flatpak 使用的本格隔离方案，基于 namespace+seccomp。"
+      "passes": true,
+      "notes": "已完成 bwrap 后端。backends/bwrap.ts：isAvailable=linux+PATH中存在bwrap；buildBwrapArgs 生成 --ro-bind / /(只读根)+--proc/proc+--dev/dev+--unshare-pid+--die-with-parent+--new-session，!allowNetwork 时加 --unshare-net，对存在的可写白名单 --bind(跳过不存在路径)，--chdir cwd，末尾 /bin/sh -c command；findExecutable 扫 PATH。detect 注册 bwrap 并加安装提示(apt/dnf)。Landlock 为 AC 可选增强，纯 Node 不便调 LSM，未实现。验证(macOS)：isAvailable=false；指定 bwrap 降级带安装提示；参数结构/网络开关/跳过不存在路径/命令追加全部断言通过。typecheck 通过。运行时隔离(写拒绝/切网)需 Linux 真机验证，本机 macOS 未实跑。"
     },
     {
       "id": "US-019",
