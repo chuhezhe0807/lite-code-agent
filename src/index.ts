@@ -57,6 +57,9 @@ function main(): void {
   if (sandbox.degraded && sandbox.reason) {
     console.log(`  ⚠ ${sandbox.reason}`);
   }
+  if (sandbox.advisory) {
+    console.log(`  ⚠ ${sandbox.advisory}`);
+  }
   console.log(`本地设置目录 : ${litecodeDir}`);
   console.log(
     `Langfuse 监控: ${isLangfuseEnabled(config.langfuse) ? "已启用" : "未启用"}`,

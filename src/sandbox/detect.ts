@@ -5,7 +5,7 @@
  * 并产出人类可读的隔离等级与（如发生）降级原因，供启动概览打印和授权弹窗展示（US-021）。
  *
  * 设计原则：优雅降级——选定后端不可用时回退到 none 并给出明确原因，绝不抛错或阻断执行。
- * US-017~019 实现各平台后端后，只需在 REGISTRY 中登记，本文件的选择逻辑无需改动。
+ * 各平台后端只需在 REGISTRY 中登记，本文件的选择逻辑无需改动。
  */
 
 import type { AppConfig } from "../config.js";
@@ -13,6 +13,7 @@ import type { SandboxBackend, SandboxBackendName } from "./types.js";
 import { createNoneBackend } from "./backends/none.js";
 import { createSeatbeltBackend } from "./backends/seatbelt.js";
 import { createBwrapBackend } from "./backends/bwrap.js";
+import { createWindowsBackend } from "./backends/windows.js";
 
 /** 各平台「理想中最强」的后端。auto 模式据此挑选。 */
 const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
@@ -24,17 +25,24 @@ const STRONGEST_BY_PLATFORM: Record<string, SandboxBackendName> = {
 /**
  * 已实现并登记的后端工厂表。
  * 工厂返回后端实例，其 isAvailable() 负责判断当前机器是否真的能用。
- * 目前只有 none；US-017~019 会在此登记 seatbelt / bwrap / jobobject。
  */
 const REGISTRY: Partial<Record<SandboxBackendName, () => SandboxBackend>> = {
   none: createNoneBackend,
   seatbelt: createSeatbeltBackend,
   bwrap: createBwrapBackend,
+  jobobject: createWindowsBackend,
 };
 
 /** 后端不可用时的补充提示（如安装方式），附加到降级原因后。 */
 const UNAVAILABLE_HINT: Partial<Record<SandboxBackendName, string>> = {
   bwrap: "（安装：Debian/Ubuntu `apt install bubblewrap`，Fedora `dnf install bubblewrap`）",
+};
+
+/** 选中某后端时的额外告知（如 Windows 弱隔离的 WSL2 建议），启动时打印。 */
+const ADVISORY: Partial<Record<SandboxBackendName, string>> = {
+  jobobject:
+    "Windows 原生隔离弱于 macOS/Linux：本后端不提供文件系统级隔离（越界写靠应用层白名单兜底），" +
+    "亦无 Job Object 资源限制（纯 Node 无法创建）。如需更强隔离，建议在 WSL2 中运行本工具（可获得 Linux/bwrap 级隔离）。",
 };
 
 /** 每个后端对应的隔离等级说明（用于展示） */
@@ -43,7 +51,7 @@ const ISOLATION_DESC: Record<SandboxBackendName, string> = {
   seatbelt: "macOS Seatbelt 文件/网络隔离",
   bwrap: "Linux bubblewrap namespace 隔离",
   landlock: "Linux Landlock LSM 隔离",
-  jobobject: "Windows Job Object 进程组管控",
+  jobobject: "Windows 进程组管控（弱隔离；文件越界靠应用层白名单）",
 };
 
 /** 后端选择结果 */
@@ -58,6 +66,8 @@ export interface SandboxSelection {
   reason?: string;
   /** 实际生效后端的隔离等级说明 */
   isolationLevel: string;
+  /** 选中该后端时的额外告知（如 Windows 的 WSL2 建议），可空 */
+  advisory?: string;
 }
 
 /** 解析一个后端名：已登记且当前可用则返回实例，否则返回不可用原因。 */
@@ -122,6 +132,7 @@ export function selectSandboxBackend(
       intended,
       degraded: false,
       isolationLevel: ISOLATION_DESC[intended],
+      advisory: ADVISORY[intended],
     };
   }
 
