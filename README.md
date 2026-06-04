@@ -4,8 +4,10 @@
 用 **LangGraph + TypeScript** 实现。它在终端里与你对话，能读写本地文件、在受限沙箱中
 执行命令和构建脚本，所有敏感操作都经过分级授权。
 
-> ⚠️ **学习级隔离**：沙箱仅靠 `child_process` + 工作目录白名单 + 超时实现，**不保证**对抗
-> 恶意代码。请勿在其中运行不可信的命令或代码。
+> ⚠️ **隔离强度**：沙箱基于**操作系统自带机制**（macOS Seatbelt / Linux bubblewrap /
+> Windows 进程组）+ 工作目录白名单 + 超时 + 进程树终止 + 环境变量清洗实现，强于纯
+> `child_process`，但**仍不等同于容器/VM 级强隔离**，不保证完全对抗恶意代码。缺少原生机制的
+> 平台会自动降级为 `child_process` + 白名单 + 超时。详见下方「沙箱隔离」。
 
 ## 特性
 
@@ -96,12 +98,52 @@ WORKDIR=./examples pnpm start
 本次允许 / 本次拒绝 / 始终允许 / 始终拒绝 间选择，「始终」会把本次调用泛化成规则
 （如 `run_command(npx tsc *)`）写入 `.litecode/settings.local.json`。
 
-**沙箱**（`src/sandbox/exec.ts`）：`spawn(shell)` 锁定 `cwd`，超时 `SIGKILL`，
+**沙箱**（`src/sandbox/`）：`detect` 按平台选隔离后端，`exec` 锁定 `cwd`，超时 `SIGKILL`，
 支持外部 `AbortSignal`（`Esc` 中断时杀子进程）。
 
 **UI 桥接**（`src/cli/controller.ts`）：`SessionController` 既是 `AuthPrompter`
 （用 promise-bridge 把授权请求推给 UI 等按键），又用 `graph.stream` 把每步转成渲染块事件，
 并跨轮累积对话历史。
+
+## 沙箱隔离
+
+`run_command` 在受限沙箱里执行。启动时按平台**自动探测**最强可用后端，缺失则**优雅降级**为 `none`
+并打印告警（启动概览会显示「沙箱后端 / 隔离等级」）。
+
+| 平台 | 后端 | 隔离能力 |
+|---|---|---|
+| macOS | `seatbelt`（`sandbox-exec`） | 文件写仅限白名单、可切断网络 |
+| Linux | `bwrap`（bubblewrap） | mount/pid namespace，只读根 + 白名单可写、可切网；需 `apt/dnf install bubblewrap` |
+| Windows | `jobobject` | 弱隔离：文件越界靠应用层白名单；建议在 **WSL2** 中运行获得 Linux 级隔离 |
+| 其它/降级 | `none` | 仅 `cwd` 锁定 + 超时 + 进程树终止 + env 清洗 |
+
+**与后端无关的通用加固**（各平台都生效）：
+
+- **整棵进程树终止**：超时与 `Esc` 中断时，POSIX 杀进程组、Windows 用 `taskkill /T`，
+  避免 `npm run` → `node` 等子进程残留。
+- **环境变量清洗**：只把白名单内的变量（`PATH`/`HOME`/代理变量等）传给被执行命令，
+  `ANTHROPIC_API_KEY`、`LANGFUSE_*` 等密钥**不会**泄漏给子进程。
+- **资源限制**（POSIX）：按配置注入 `ulimit`（进程数 `-u` / CPU 时间 `-t` / 内存 `-v`），
+  缺省不限制；`-u` 为 per-user 语义。
+
+**配置**（`config.json` 的 `sandbox` 段或环境变量）：
+
+```jsonc
+{
+  "sandbox": {
+    "backend": "auto",          // auto | none | seatbelt | bwrap | jobobject
+    "allowNetwork": true,        // 默认放行：npm install 等需联网；设 false 切断网络
+    "writablePaths": [],         // 在 cwd + tmp + 包管理器缓存之外额外可写的绝对路径
+    "limits": { "maxProcesses": 512, "cpuTimeSeconds": 60 },
+    "envPassthrough": []         // 在默认白名单之外额外透传的环境变量名
+  }
+}
+```
+
+环境变量：`SANDBOX_BACKEND`、`SANDBOX_ALLOW_NETWORK`。
+
+> **网络默认放行的权衡**：代码 agent 常需 `npm install` / 拉依赖，故 `allowNetwork` 默认 `true`。
+> 若要在其中跑不可信代码，建议设为 `false` 切断网络，并配合 `seatbelt`/`bwrap` 后端。
 
 ## 工具一览
 
@@ -143,7 +185,7 @@ src/
   agent/graph.ts        LangGraph 主循环（agent/tools 节点 + 状态）
   tools/                read_file / list_dir / write_file / edit_file / run_command / update_todos
   permissions/          授权：settings 读写 / 规则匹配 / prompter / manager
-  sandbox/exec.ts       child_process 沙箱执行（超时 + 中断）
+  sandbox/              沙箱：types / detect（后端选择）/ policy / exec / backends（seatbelt·bwrap·windows·none）
   security/path.ts      工作目录路径白名单校验
   util/                 diff 格式化 / 输出头尾截断
   observability/langfuse.ts  可选 Langfuse 回调

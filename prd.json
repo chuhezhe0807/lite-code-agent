@@ -343,8 +343,8 @@
         "Typecheck passes"
       ],
       "priority": 20,
-      "passes": false,
-      "notes": "与后端无关的通用加固，含修复现状「只杀 shell 不杀子进程树」「整体继承 env 泄漏密钥」两个隔离漏洞。"
+      "passes": true,
+      "notes": "已完成（macOS 真机验证）。exec.ts：killTree(POSIX detached+进程组杀负pid / win32 taskkill /F /T)，超时与abort均改调；buildEnv 按 policy.envAllowlist 从 process.env 过滤构造子进程 env；POSIX 注入 buildUlimitPrefix(ulimit -u/-t/-v 各带2>/dev/null容错，无危险默认)。types.SandboxPolicy 加 envAllowlist；policy.ts DEFAULT_ENV_ALLOWLIST(PATH/HOME/代理/Windows必需等)+config.envPassthrough；config 加 envPassthrough。allowNetwork 默认 true 已有，README 新增「沙箱隔离」段(后端矩阵/通用加固/配置/网络默认权衡)。验证：API Key 不泄漏、PATH透传、envPassthrough生效；abort 后孙进程 sleep 不存活(进程树杀净)；ulimit 值注入正确(u=cur+2000,t=45)、不设限取系统默认2666、低限 fork 被挡(Resource temporarily unavailable)。typecheck 通过。注：ulimit -u 为 per-user 语义、ulimit -v 在 macOS 不支持(已 2>/dev/null 容错)；Windows 资源限制需 Job Object(US-019 未实现)。"
     },
     {
       "id": "US-021",

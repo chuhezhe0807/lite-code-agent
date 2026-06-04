@@ -40,6 +40,11 @@ export interface SandboxPolicy {
   allowNetwork: boolean;
   /** 资源上限 */
   limits: ResourceLimits;
+  /**
+   * 允许透传给被执行命令的环境变量名白名单（US-020）。
+   * 执行时只把 process.env 中命中白名单的变量传给子进程，避免 ANTHROPIC_API_KEY 等密钥泄漏。
+   */
+  envAllowlist: string[];
 }
 
 /**

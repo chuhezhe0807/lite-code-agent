@@ -56,8 +56,10 @@ export interface SandboxConfig {
   allowNetwork: boolean;
   /** 在默认可写白名单（cwd + tmp + 包管理器缓存）之外额外允许写入的绝对路径 */
   writablePaths: string[];
-  /** 资源上限（US-020 落地执行；此处为配置占位） */
+  /** 资源上限（US-020）：进程数/内存/CPU 时间，缺省不限制 */
   limits: ResourceLimits;
+  /** 在默认环境变量白名单之外额外透传给被执行命令的变量名（US-020） */
+  envPassthrough: string[];
 }
 
 /** Agent 运行时整体配置 */
@@ -175,6 +177,7 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     ),
     writablePaths: file.sandbox?.writablePaths ?? [],
     limits: file.sandbox?.limits ?? {},
+    envPassthrough: file.sandbox?.envPassthrough ?? [],
   };
 
   // Langfuse 配置：三个字段任意来源，缺失则后续判定为关闭

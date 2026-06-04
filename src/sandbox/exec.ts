@@ -1,19 +1,81 @@
 /**
  * 沙箱命令执行器
  *
- * 职责单一：用 child_process.spawn「执行并收集结果」，并施加两道约束：
- *   1. 超时：到点强制 SIGKILL 杀掉进程，防止卡死。
- *   2. 中断：支持外部传入 AbortSignal，被 abort 时立即杀进程（供 US-012 的 Esc 中断复用）。
+ * 职责单一：用 child_process.spawn「执行并收集结果」，并施加约束：
+ *   1. 超时：到点强制杀掉**整棵进程树**，防止卡死。
+ *   2. 中断：支持外部传入 AbortSignal，被 abort 时立即杀整棵进程树（供 US-012 的 Esc 中断复用）。
  *
- * 「如何把命令包裹进隔离环境」由传入的 SandboxBackend 决定（US-016）：本模块先用
- * backend.wrapCommand 把命令转成 spawn 规格，再统一执行。none 后端等同直接用 shell 跑原命令，
- * seatbelt / bwrap 等后端则会包裹一层隔离器。本模块不做授权判断，须配合授权层（US-007）。
+ * 「如何把命令包裹进隔离环境」由传入的 SandboxBackend 决定（US-016）。在此之上，本模块做一组
+ * 与后端无关的通用加固（US-020）：
+ *   - 整棵进程树终止：POSIX 用 detached 进程组 + 杀负 pid；Windows 用 taskkill /T，
+ *     避免「只杀了 shell，npm→node 等子进程残留」。
+ *   - 环境变量清洗：只把 policy.envAllowlist 命中的变量传给子进程，避免泄漏 API Key 等密钥。
+ *   - 资源限制：POSIX 下按 policy.limits 注入 ulimit 前缀（进程数/内存/CPU 时间）。
+ * 本模块不做授权判断，须配合授权层（US-007）。
  */
 
 // spawn 用于在沙箱中执行命令，支持超时和外部中断，流式创建子进程，适合长时间、大输出的命令（npm run、shell脚本等）
 // 数据分段返回，不缓存全部输出到内存
-import { spawn } from "node:child_process";
-import type { SandboxBackend, SandboxPolicy } from "./types.js";
+import { spawn, type ChildProcess } from "node:child_process";
+import type { ResourceLimits, SandboxBackend, SandboxPolicy } from "./types.js";
+
+const isWindows = process.platform === "win32";
+
+/**
+ * 杀掉子进程**整棵树**。
+ * - POSIX：子进程以 detached 方式启动后是「进程组组长」，向负 pid 发信号即可杀掉整组
+ *   （shell 及其 fork 出来的 npm/node 等全部命中）。
+ * - Windows：用 taskkill /T 递归杀掉子树（/F 强制）。
+ */
+function killTree(child: ChildProcess): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  if (isWindows) {
+    // 异步杀树，忽略其自身输出与错误
+    spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { stdio: "ignore" });
+    return;
+  }
+  try {
+    process.kill(-pid, "SIGKILL"); // 负号=杀整个进程组
+  } catch {
+    // 兜底：进程组不存在时直接杀子进程本身
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* 进程可能已退出，忽略 */
+    }
+  }
+}
+
+/** 构造传给子进程的环境变量：仅透传白名单命中的变量，其余（含密钥）一律丢弃。 */
+function buildEnv(allowlist: string[]): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of allowlist) {
+    const v = process.env[name];
+    if (v !== undefined) env[name] = v;
+  }
+  return env;
+}
+
+/**
+ * 构造 POSIX 资源限制前缀（ulimit）。各项独立成句并吞掉错误（`2>/dev/null`），
+ * 这样某项在当前平台不被支持（如 macOS 的 `ulimit -v`）也不会中断命令。
+ * 注意：`ulimit -u` 是 per-user 语义（限制整个用户的进程数，非仅本子树）。
+ */
+function buildUlimitPrefix(limits: ResourceLimits): string {
+  const parts: string[] = [];
+  if (limits.maxProcesses != null) {
+    parts.push(`ulimit -u ${limits.maxProcesses} 2>/dev/null`);
+  }
+  if (limits.cpuTimeSeconds != null) {
+    parts.push(`ulimit -t ${limits.cpuTimeSeconds} 2>/dev/null`);
+  }
+  if (limits.maxMemoryBytes != null) {
+    // ulimit -v 单位为 KB
+    parts.push(`ulimit -v ${Math.ceil(limits.maxMemoryBytes / 1024)} 2>/dev/null`);
+  }
+  return parts.length > 0 ? parts.join("; ") + "; " : "";
+}
 
 /** 执行选项 */
 export interface ExecOptions {
@@ -77,14 +139,23 @@ export function runInSandbox(
       return;
     }
 
+    // POSIX 下按资源上限注入 ulimit 前缀（命令经 shell 执行，故可前置）；Windows 暂不支持
+    const effectiveCommand = isWindows
+      ? command
+      : buildUlimitPrefix(policy.limits) + command;
+
     // 由后端把命令包裹成 spawn 规格（none 后端等同 shell 直接跑原命令）
-    const spec = backend.wrapCommand(command, policy);
+    const spec = backend.wrapCommand(effectiveCommand, policy);
     const child = spawn(spec.file, spec.args, {
       cwd,
       shell: spec.shell,
       // 不继承 stdin，避免交互式命令挂起，其实就是关闭子进程输入，防止命令等待交互卡住
       // stdio 的三个值分别是：[stdin, stdout, stderr] 标准输入/标准输出/标准错误
       stdio: ["ignore", "pipe", "pipe"],
+      // POSIX：独立进程组，便于一次杀掉整棵进程树（见 killTree）
+      detached: !isWindows,
+      // 环境变量清洗：只透传白名单变量，避免把 API Key 等密钥泄漏给被执行命令
+      env: buildEnv(policy.envAllowlist),
     });
 
     let stdout = "";
@@ -105,16 +176,16 @@ export function runInSandbox(
       stderr = append(stderr, c);
     });
 
-    // 超时：到点强制杀进程
+    // 超时：到点强制杀掉整棵进程树
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGKILL");
+      killTree(child);
     }, timeoutMs);
 
-    // 外部中断：被 abort 时杀进程
+    // 外部中断：被 abort 时杀掉整棵进程树
     const onAbort = () => {
       aborted = true;
-      child.kill("SIGKILL");
+      killTree(child);
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
