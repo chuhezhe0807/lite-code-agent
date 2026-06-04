@@ -192,6 +192,82 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 
 > 概念澄清（便于后续实现）：① 工具结果是**下一轮的输入 token**（不是模型输出）；② 工具调用参数是模型必需的输出，省不掉；③ 模型每步的解说 prose 才是可省的输出 token；④ 多轮里每轮重发全部历史是输入 token 大头，prompt caching 收益最大。
 
+---
+
+> **Epic：跨平台原生沙箱隔离（US-016 ~ US-020）**
+> 现状（US-006）只用 `child_process` + cwd 锁定 + 超时，子进程仍可读写整个文件系统、访问网络、继承全部环境变量（含 API Key），隔离基本为零。本 Epic 在**不引入 Docker / VM / 云沙箱**的前提下，调用各操作系统**自带**的隔离机制把隔离强度提到「可用级」：macOS 用 Seatbelt（`sandbox-exec`），Linux 用 bubblewrap / Landlock，Windows 用 Job Object + 受限令牌（弱隔离，并引导 WSL）。设计原则：**能力探测 + 优雅降级**——平台无对应机制时回退到现状行为并明确告警，绝不因此崩溃或阻断使用。
+> 这会更新 Non-Goal 第 1 条：从「仅 child_process 学习级隔离」演进为「OS 原生机制隔离（仍不含 Docker/VM/云）」。
+
+### US-016: 跨平台沙箱后端抽象与能力探测
+**Description:** As a developer, I want 一个按平台选择隔离后端的沙箱抽象层, so that 上层 `run_command` 无需关心 OS 差异，且在缺少原生机制时能安全降级。
+
+**Acceptance Criteria:**
+- [ ] 定义统一的 `SandboxBackend` 接口（如 `wrapCommand(command, policy) -> {file, args}` 或 `spawnSandboxed(...)`），把「如何把一条命令包裹进隔离环境」与「执行/超时/中断」解耦；现有 `runInSandbox` 改为调用选定的 backend。
+- [ ] 定义 `SandboxPolicy`：可写路径白名单（默认 cwd + 系统 tmp + 包管理器缓存如 `~/.npm`）、是否允许网络、资源上限（内存/进程数/CPU 时间，见 US-020）。
+- [ ] 启动时做**能力探测**：检测当前平台可用的最强后端（macOS→seatbelt；Linux→bwrap/landlock；Windows→jobobject），探测结果与「当前隔离等级」打印/记录，并可在配置中查看。
+- [ ] 配置项 `sandbox.backend`：`auto`（默认，按平台自动选）/ 指定后端 / `none`（显式关闭隔离，仅 cwd+超时）。
+- [ ] **优雅降级**：选定后端不可用（如 Linux 未装 bwrap）时，回退到 `none` 行为并打印明确告警（说明降级原因与隔离风险），不崩溃、不阻断命令执行。
+- [ ] 越权/路径策略仍由现有工作目录白名单兜底（沙箱是额外一层，不是唯一一层）。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-017: macOS Seatbelt 后端（sandbox-exec）
+**Description:** As a macOS user, I want 命令在 Seatbelt 沙箱里执行, so that 子进程默认不能写工作目录之外、可选切断网络。
+
+**Acceptance Criteria:**
+- [ ] 实现 seatbelt backend：用 `sandbox-exec -p <profile>` 包裹命令执行。
+- [ ] 动态生成 SBPL profile：`(deny default)` 起步，按 `SandboxPolicy` 放行——`file-write*` 仅限可写白名单（cwd / tmp / 缓存），`file-read*` 可全放行或按需收紧，`process-exec`/`process-fork` 放行。
+- [ ] 网络策略：`policy.allowNetwork=false` 时 profile 不含 `(allow network*)`，实现网络切断；为 `true` 时放行。
+- [ ] profile 中的路径正确转义（含空格/特殊字符的 cwd 不破坏 profile）。
+- [ ] 验证：在沙箱内写 cwd 成功、写 cwd 外（如 `~/Desktop`）被拒；`allowNetwork=false` 时 `curl`/`ping` 失败。
+- [ ] `sandbox-exec` 不存在（极少见）时按 US-016 降级。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-018: Linux bubblewrap / Landlock 后端
+**Description:** As a Linux user, I want 命令在 bubblewrap（或 Landlock）里执行, so that 获得 namespace 级别的文件/网络隔离。
+
+**Acceptance Criteria:**
+- [ ] 实现 bwrap backend：用 `bwrap` 包裹命令——只读绑定必要系统目录（`/usr`、`/bin`、`/lib` 等），可写白名单（cwd / tmp / 缓存）以 `--bind` 挂载，其余 `--ro-bind` 或不挂载。
+- [ ] 网络策略：`allowNetwork=false` 时加 `--unshare-net` 切断网络；为 `true` 时共享网络。
+- [ ] 进程隔离：`--unshare-pid`、`--die-with-parent`（父进程退出时子进程一并清理）。
+- [ ] 可选：探测到内核支持 Landlock 时提供轻量 LSM 后端作为 bwrap 的替代/补充（标注为可选增强，不阻塞本 US）。
+- [ ] 验证：写 cwd 成功、写白名单外被拒；`--unshare-net` 下网络不可达。
+- [ ] `bwrap` 未安装时按 US-016 降级并提示安装方式。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-019: Windows 后端（Job Object + 受限令牌，弱隔离 + WSL 引导）
+**Description:** As a Windows user, I want 在 Windows 上获得力所能及的隔离与资源限制, so that 至少能防失控进程，并被引导到更强的 WSL 方案。
+
+**Acceptance Criteria:**
+- [ ] 实现 Windows backend：用 **Job Object** 约束进程组——设置 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`（父退出/中断时整组进程被杀）、进程数与内存上限（对接 US-020）。
+- [ ] 文件隔离能力有限：明确文件越界主要仍靠工作目录白名单（应用层）兜底，沙箱层只提供「进程组管控 + 资源限制」；如可行，可探索受限令牌（restricted token）降低权限作为增强。
+- [ ] 启动时**如实告知**：Windows 原生隔离弱于 macOS/Linux，建议在 **WSL2** 中运行本工具以获得 Linux（bwrap）级隔离，并在文档给出步骤。
+- [ ] Job Object 不可用或调用失败时按 US-016 降级（cwd+超时），不崩溃。
+- [ ] 验证：在 Windows（或 CI/WSL 上尽量模拟）下，中断/超时能杀掉整棵进程树；越界写被白名单拦截。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-020: 跨平台通用加固（进程树终止 / 环境清洗 / 资源限制 / 网络默认策略）
+**Description:** As a maintainer, I want 一组与后端无关、各平台都生效的加固, so that 即便降级到 `none` 也比现状更安全，且修复现有隔离漏洞。
+
+**Acceptance Criteria:**
+- [ ] **整棵进程树终止**：修复现状只杀 shell 而 `npm run`→node 等孙进程存活的问题——POSIX 用 `detached:true` + `process.kill(-pid, SIGKILL)` 杀进程组；Windows 用 Job Object（US-019）；超时与 Esc 中断（US-012）均复用此逻辑。
+- [ ] **环境变量清洗**：不再整体继承 `process.env`，改为最小白名单（`PATH`、`HOME`/`USERPROFILE`、`LANG`、必要的代理变量等），避免把 `ANTHROPIC_API_KEY` 等密钥泄漏给被执行命令；白名单可配置。
+- [ ] **资源限制**：POSIX 经 `ulimit`（进程数 `-u`、虚拟内存 `-v`、CPU 时间 `-t`）或后端原生能力；Windows 经 Job Object，提供 fork 炸弹 / 内存耗尽的基础防护，阈值可配置。
+- [ ] **网络默认策略**：在 `SandboxPolicy` 暴露 `allowNetwork`，默认值与权衡写入文档（注意 `npm install` 等需联网，默认放行；提供按需切断的配置）。
+- [ ] 验证：fork 炸弹被进程数上限挡住；中断后无残留子进程；子进程 `env` 中不含密钥。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-021: 授权与沙箱联动（让用户看清「在沙箱里要执行什么」）
+**Description:** As a user, I want 在批准命令前看到它将在沙箱中执行的具体内容与作用域, so that 我能基于「命令文本 + 它能改动什么」做知情决策，而不是盲批一个命令名。
+
+**Acceptance Criteria:**
+- [ ] 复用 US-007 的授权流（键盘方向键选择「本次允许/本次拒绝/始终允许/始终拒绝」+ 模式规则持久化），不另起一套机制；本 US 只增强「展示」，不改授权判定模型。
+- [ ] **沿用 Claude Code 的询问策略**：只读工具（`read_file`/`list_dir`）默认放行；**执行类（`run_command`，含脚本执行）与写文件类（`write_file`/`edit_file`）一律询问**，不做「这条命令是读还是写」的启发式区分。唯一的免询问途径是 US-007 的 `allow` 模式规则命中（如用户主动添加 `Bash(npm test *)`）。
+- [ ] 授权弹窗除展示**完整命令文本**外，附带该命令的**沙箱作用域摘要**：选定后端（seatbelt/bwrap/jobobject/none）、可写路径白名单、是否允许网络、资源上限。
+- [ ] **降级时强提示**：当后端为 `none`（无原生隔离）时，在弹窗显著标注「无沙箱隔离，命令将以当前用户权限直接运行」，让用户知道风险等级随平台/降级变化。
+- [ ] 越权与作用域一致性：弹窗展示的可写白名单必须与实际传给沙箱后端的 `SandboxPolicy` 一致（展示即真实生效，不得误导）。
+- [ ] 拒绝时按 US-007 将拒绝信息作为工具结果回传给 agent，不崩溃。
+- [ ] 代码含中文注释；Typecheck passes。
+
 ## 4. Functional Requirements
 
 - FR-1: 系统必须基于 LangGraph 的 `StateGraph` 实现 agent 主循环，包含 `agent` 与 `tools` 两个核心节点及条件边。
@@ -216,7 +292,7 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 
 ## 5. Non-Goals（明确不做）
 
-- 不实现强隔离沙箱（不用 Docker / VM / 云沙箱）；本版本仅用 `child_process` + 路径与超时限制，属于「学习级」隔离，不保证对抗恶意代码。
+- 不用 Docker / VM / 云沙箱做隔离。隔离仅依赖**操作系统自带机制**（macOS Seatbelt / Linux bubblewrap·Landlock / Windows Job Object，见 US-016~US-020）+ 路径白名单 + 超时；强度高于纯 `child_process`，但仍不等同于容器/VM 级强隔离，不保证完全对抗恶意代码。缺少原生机制的平台会降级为 `child_process` + 路径与超时限制。
 - 不做 Web UI 或图形界面，仅 CLI。
 - 不做对话历史 / 会话记录的持久化数据库（仅授权选择持久化到 `.litecode/settings.local.json`，对话历史不落盘）。
 - 不做用户系统、权限账户、远程部署。

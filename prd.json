@@ -257,6 +257,112 @@
       "priority": 15,
       "passes": false,
       "notes": "后续优化项。要点：工具结果是下一轮的输入 token（非输出）；工具调用参数是必需输出；模型每步解说 prose 是可省的输出 token；多轮里重发全部历史是输入 token 大头，prompt caching 是最大杠杆。"
+    },
+    {
+      "id": "US-016",
+      "title": "跨平台沙箱后端抽象与能力探测",
+      "description": "As a developer, I want 一个按平台选择隔离后端的沙箱抽象层 so that 上层 run_command 无需关心 OS 差异，且在缺少原生机制时能安全降级。",
+      "acceptanceCriteria": [
+        "定义统一的 SandboxBackend 接口（如 wrapCommand(command, policy) 或 spawnSandboxed），把「如何把命令包裹进隔离环境」与「执行/超时/中断」解耦；现有 runInSandbox 改为调用选定 backend",
+        "定义 SandboxPolicy：可写路径白名单（默认 cwd + 系统 tmp + 包管理器缓存如 ~/.npm）、是否允许网络、资源上限（内存/进程数/CPU 时间，见 US-020）",
+        "启动时做能力探测：检测当前平台可用的最强后端（macOS→seatbelt；Linux→bwrap/landlock；Windows→jobobject），打印/记录探测结果与当前隔离等级",
+        "配置项 sandbox.backend：auto（默认按平台自动选）/ 指定后端 / none（显式关闭隔离，仅 cwd+超时）",
+        "优雅降级：选定后端不可用（如 Linux 未装 bwrap）时回退到 none 行为并打印明确告警（降级原因+隔离风险），不崩溃、不阻断执行",
+        "越权/路径策略仍由现有工作目录白名单兜底（沙箱是额外一层，不是唯一一层）",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": "Epic 跨平台原生沙箱的核心框架。更新 Non-Goal 第1条：从「仅 child_process 学习级隔离」演进为「OS 原生机制隔离（仍不含 Docker/VM/云）」。"
+    },
+    {
+      "id": "US-017",
+      "title": "macOS Seatbelt 后端（sandbox-exec）",
+      "description": "As a macOS user, I want 命令在 Seatbelt 沙箱里执行 so that 子进程默认不能写工作目录之外、可选切断网络。",
+      "acceptanceCriteria": [
+        "实现 seatbelt backend：用 sandbox-exec -p <profile> 包裹命令执行",
+        "动态生成 SBPL profile：(deny default) 起步，按 SandboxPolicy 放行——file-write* 仅限可写白名单（cwd/tmp/缓存），file-read* 可全放行或按需收紧，process-exec/process-fork 放行",
+        "网络策略：policy.allowNetwork=false 时 profile 不含 (allow network*) 实现切网，为 true 时放行",
+        "profile 中路径正确转义（含空格/特殊字符的 cwd 不破坏 profile）",
+        "验证：沙箱内写 cwd 成功、写 cwd 外（如 ~/Desktop）被拒；allowNetwork=false 时 curl/ping 失败",
+        "sandbox-exec 不存在时按 US-016 降级",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": "首选后端（开发环境为 macOS）。Apple 标 sandbox-exec 为 deprecated 但仍可用，Claude Code/Codex CLI 在用。"
+    },
+    {
+      "id": "US-018",
+      "title": "Linux bubblewrap / Landlock 后端",
+      "description": "As a Linux user, I want 命令在 bubblewrap（或 Landlock）里执行 so that 获得 namespace 级别的文件/网络隔离。",
+      "acceptanceCriteria": [
+        "实现 bwrap backend：只读绑定必要系统目录（/usr、/bin、/lib 等），可写白名单（cwd/tmp/缓存）以 --bind 挂载，其余 --ro-bind 或不挂载",
+        "网络策略：allowNetwork=false 时加 --unshare-net 切网，为 true 时共享网络",
+        "进程隔离：--unshare-pid、--die-with-parent（父进程退出时子进程一并清理）",
+        "可选：探测到内核支持 Landlock 时提供轻量 LSM 后端作为 bwrap 替代/补充（可选增强，不阻塞本 US）",
+        "验证：写 cwd 成功、写白名单外被拒；--unshare-net 下网络不可达",
+        "bwrap 未安装时按 US-016 降级并提示安装方式",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": "bubblewrap 是 Flatpak 使用的本格隔离方案，基于 namespace+seccomp。"
+    },
+    {
+      "id": "US-019",
+      "title": "Windows 后端（Job Object + 受限令牌，弱隔离 + WSL 引导）",
+      "description": "As a Windows user, I want 在 Windows 上获得力所能及的隔离与资源限制 so that 至少能防失控进程，并被引导到更强的 WSL 方案。",
+      "acceptanceCriteria": [
+        "实现 Windows backend：用 Job Object 约束进程组——设置 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE（父退出/中断时整组进程被杀）、进程数与内存上限（对接 US-020）",
+        "文件隔离能力有限：明确文件越界主要仍靠工作目录白名单（应用层）兜底，沙箱层只提供进程组管控+资源限制；如可行可探索受限令牌（restricted token）降低权限作为增强",
+        "启动时如实告知：Windows 原生隔离弱于 macOS/Linux，建议在 WSL2 中运行本工具以获得 Linux（bwrap）级隔离，并在文档给出步骤",
+        "Job Object 不可用或调用失败时按 US-016 降级（cwd+超时），不崩溃",
+        "验证：在 Windows（或 CI/WSL 上尽量模拟）下中断/超时能杀掉整棵进程树；越界写被白名单拦截",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": "Windows 无 macOS/Linux 级轻量文件沙箱；原生层主要做进程组管控+资源限制，强隔离引导用户走 WSL2。"
+    },
+    {
+      "id": "US-020",
+      "title": "跨平台通用加固（进程树终止/环境清洗/资源限制/网络默认策略）",
+      "description": "As a maintainer, I want 一组与后端无关、各平台都生效的加固 so that 即便降级到 none 也比现状更安全，且修复现有隔离漏洞。",
+      "acceptanceCriteria": [
+        "整棵进程树终止：修复现状只杀 shell 而 npm run→node 等孙进程存活的问题——POSIX 用 detached:true + process.kill(-pid, SIGKILL) 杀进程组，Windows 用 Job Object（US-019）；超时与 Esc 中断（US-012）均复用此逻辑",
+        "环境变量清洗：不再整体继承 process.env，改为最小白名单（PATH、HOME/USERPROFILE、LANG、必要代理变量等），避免把 ANTHROPIC_API_KEY 等密钥泄漏给被执行命令；白名单可配置",
+        "资源限制：POSIX 经 ulimit（进程数 -u、虚拟内存 -v、CPU 时间 -t）或后端原生能力，Windows 经 Job Object，提供 fork 炸弹/内存耗尽基础防护，阈值可配置",
+        "网络默认策略：在 SandboxPolicy 暴露 allowNetwork，默认值与权衡写入文档（注意 npm install 等需联网，默认放行；提供按需切断配置）",
+        "验证：fork 炸弹被进程数上限挡住；中断后无残留子进程；子进程 env 中不含密钥",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": "与后端无关的通用加固，含修复现状「只杀 shell 不杀子进程树」「整体继承 env 泄漏密钥」两个隔离漏洞。"
+    },
+    {
+      "id": "US-021",
+      "title": "授权与沙箱联动（让用户看清在沙箱里要执行什么）",
+      "description": "As a user, I want 在批准命令前看到它将在沙箱中执行的具体内容与作用域 so that 我能基于「命令文本 + 它能改动什么」做知情决策，而不是盲批一个命令名。",
+      "acceptanceCriteria": [
+        "复用 US-007 的授权流（键盘方向键选择「本次允许/本次拒绝/始终允许/始终拒绝」+ 模式规则持久化），不另起一套机制；本 US 只增强展示，不改授权判定模型",
+        "沿用 Claude Code 询问策略：只读工具（read_file/list_dir）默认放行；执行类（run_command 含脚本执行）与写文件类（write_file/edit_file）一律询问，不做「这条命令是读还是写」的启发式区分；唯一免询问途径是 US-007 的 allow 模式规则命中（如用户主动加 Bash(npm test *)）",
+        "授权弹窗除展示完整命令文本外，附带沙箱作用域摘要：选定后端（seatbelt/bwrap/jobobject/none）、可写路径白名单、是否允许网络、资源上限",
+        "降级时强提示：后端为 none（无原生隔离）时显著标注「无沙箱隔离，命令将以当前用户权限直接运行」，让用户知道风险等级随平台/降级变化",
+        "越权与作用域一致性：弹窗展示的可写白名单必须与实际传给沙箱后端的 SandboxPolicy 一致（展示即真实生效，不得误导）",
+        "拒绝时按 US-007 将拒绝信息作为工具结果回传给 agent，不崩溃",
+        "代码含中文注释",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": "把授权层（US-007）与沙箱层打通：弹窗叠加沙箱作用域信息。授权交互为键盘方向键选择（SelectList），非文本输入（旧 readline prompter 已删）。"
     }
   ]
 }
