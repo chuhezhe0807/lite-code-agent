@@ -156,6 +156,33 @@ WORKDIR=./examples pnpm start
 | `run_command(command)` | execute | 沙箱执行，超时/中断保护，头尾截断输出 |
 | `update_todos(todos)` | read | 维护任务清单，UI 实时 ○/◐/✓ |
 
+## 降低 token 消耗
+
+多轮工具调用很费 token，本项目内置几项可选优化：
+
+- **收紧系统提示**：指示模型不复述工具返回内容、不写大段解说、只给一句话级结论，减少**输出** token。
+- **prompt caching**（`promptCaching`，默认关）：给系统提示加 `cache_control`，让 Anthropic 缓存
+  「tools + system」这段稳定前缀，多轮命中缓存可显著省**输入** token。需 LLM 端点（官方或兼容网关，
+  如 LiteLLM）支持 `cache_control`，不支持则被忽略、不报错；可在响应 `usage` 的
+  `cache_read_input_tokens` / `cache_creation_input_tokens` 确认是否命中。
+- **历史工具结果压缩**（`historyToolResultMaxBytes`，默认 8192，0=关）：重发给模型时把超预算的旧工具
+  结果做头尾截断（产生当轮仍完整可见），削减多轮重发的输入 token。
+- **工具输出预算可调**：`commandOutputMaxBytes` / `readFileMaxLines` 可调小。
+
+> 概念澄清：①工具结果是**下一轮的输入 token**（非模型输出）；②工具调用参数是模型必需的输出，省不掉；
+> ③模型每步的解说 prose 才是可省的输出 token；④多轮里重发全部历史是输入 token 大头，prompt caching
+> 杠杆最大。**注意**：UI 里的展示裁剪（`clampCount`）**仅影响终端显示，不会减少发给模型的 token**——
+> 两者是不同的东西。
+
+配置（`config.json` 或环境变量 `PROMPT_CACHING` / `HISTORY_TOOL_RESULT_MAX_BYTES`）：
+
+```jsonc
+{
+  "promptCaching": false,
+  "historyToolResultMaxBytes": 8192
+}
+```
+
 ## 可选：Langfuse 监控
 
 仓库内 `docker-compose.yml` 可一键自托管 Langfuse：

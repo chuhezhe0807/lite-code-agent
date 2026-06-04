@@ -76,6 +76,18 @@ export interface AppConfig {
   commandOutputMaxBytes: number;
   /** Agent 主循环最大迭代次数，防止无限工具调用，默认 25 */
   maxIterations: number;
+  /**
+   * 是否启用 Anthropic prompt caching（US-015，默认 false）。
+   * 启用时给系统提示加 cache_control，缓存「tools + system」稳定前缀以省输入 token；
+   * 需 LLM 端点（官方或兼容网关）支持 cache_control，否则被忽略、不报错。
+   */
+  promptCaching: boolean;
+  /**
+   * 历史中单条工具结果在「重发给模型」时的字节上限（US-015，默认 8192，0=不压缩）。
+   * 超过则头尾截断，避免多轮对话每轮重发大块旧工具输出（输入 token 大头）。
+   * 仅影响后续轮的重发，不影响该结果产生当轮的完整可见。
+   */
+  historyToolResultMaxBytes: number;
   /** 沙箱配置（US-016） */
   sandbox: SandboxConfig;
   /** Langfuse 监控配置（可选） */
@@ -90,6 +102,8 @@ interface RawConfigFile {
   readFileMaxLines?: number;
   commandOutputMaxBytes?: number;
   maxIterations?: number;
+  promptCaching?: boolean;
+  historyToolResultMaxBytes?: number;
   sandbox?: Partial<SandboxConfig>;
   langfuse?: LangfuseConfig;
 }
@@ -102,6 +116,8 @@ const DEFAULTS = {
   readFileMaxLines: 2000,
   commandOutputMaxBytes: 30 * 1024,
   maxIterations: 25,
+  promptCaching: false,
+  historyToolResultMaxBytes: 8192,
   sandboxBackend: "auto" as SandboxBackendChoice,
   sandboxAllowNetwork: true,
 };
@@ -195,6 +211,12 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     commandOutputMaxBytes:
       file.commandOutputMaxBytes ?? DEFAULTS.commandOutputMaxBytes,
     maxIterations: file.maxIterations ?? DEFAULTS.maxIterations,
+    promptCaching: parseBool(
+      process.env.PROMPT_CACHING,
+      file.promptCaching ?? DEFAULTS.promptCaching,
+    ),
+    historyToolResultMaxBytes:
+      file.historyToolResultMaxBytes ?? DEFAULTS.historyToolResultMaxBytes,
     sandbox,
     langfuse: isLangfuseEnabled(langfuse) ? langfuse : undefined,
   };

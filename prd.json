@@ -255,8 +255,8 @@
         "Typecheck passes"
       ],
       "priority": 15,
-      "passes": false,
-      "notes": "后续优化项。要点：工具结果是下一轮的输入 token（非输出）；工具调用参数是必需输出；模型每步解说 prose 是可省的输出 token；多轮里重发全部历史是输入 token 大头，prompt caching 是最大杠杆。"
+      "passes": true,
+      "notes": "已完成。①系统提示收紧(graph DEFAULT_SYSTEM_PROMPT 增「不复述工具输出/不写大段解说/只给一句话结论」)降输出token。②prompt caching：config.promptCaching(默认false)+env PROMPT_CACHING；graph buildSystemMessage 启用时把系统提示构造成带 cache_control:ephemeral 的 content block，缓存 tools+system 稳定前缀；端点不支持则忽略不报错。③历史工具结果压缩：config.historyToolResultMaxBytes(默认8192,0=off)+env；controller.compactToolResults 发送前对超预算旧 ToolMessage 头尾截断(truncateHeadTail)+重读提示，保留 tool_call_id/name，不改 this.history(当轮完整)；commandOutputMaxBytes/readFileMaxLines 本就可调。④clampCount 注释+README 明确「UI 裁剪仅影响显示、不减 token」。验证：caching off→system字符串、on→数组带cache_control 且真实graph mock invoke 不报错；压缩大结果截断/保留id/含提示、小结果原样、maxBytes=0不压缩；typecheck 通过。注：真实缓存命中需对接支持 cache_control 的 Anthropic 端点在 usage(cache_read/creation) 观察，本机仅验证结构。"
     },
     {
       "id": "US-016",

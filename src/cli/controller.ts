@@ -14,11 +14,12 @@
 import { EventEmitter } from "node:events";
 import {
   HumanMessage,
+  ToolMessage,
   type AIMessage,
   type BaseMessage,
-  type ToolMessage,
   type MessageContent,
 } from "@langchain/core/messages";
+import { truncateHeadTail } from "../util/truncate.js";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AppConfig } from "../config.js";
 import type { ToolSpec, Todo } from "../tools/index.js";
@@ -42,6 +43,35 @@ function textOf(content: MessageContent): string {
     .join("");
 }
 
+/**
+ * 压缩历史中的大块工具结果（US-015），仅用于「重发给模型」。
+ *
+ * 多轮对话每轮都要把全部历史重新发给模型，旧工具结果（大文件、长命令输出）是输入 token 大头。
+ * 这里对超过字节预算的 ToolMessage 做头尾截断并加重读提示，保留消息结构（tool_call_id/name）
+ * 以免破坏 tool_use/tool_result 配对。返回新数组，不改动原历史（产生当轮模型已见过完整内容）。
+ *
+ * @param messages 待发送的消息序列
+ * @param maxBytes 单条工具结果字节上限；<=0 时不压缩
+ */
+function compactToolResults(
+  messages: BaseMessage[],
+  maxBytes: number,
+): BaseMessage[] {
+  if (maxBytes <= 0) return messages;
+  return messages.map((m) => {
+    if (!(m instanceof ToolMessage) || typeof m.content !== "string") return m;
+    if (Buffer.byteLength(m.content, "utf-8") <= maxBytes) return m;
+    const truncated =
+      truncateHeadTail(m.content, { maxBytes }) +
+      "\n[历史工具结果已压缩以节省 token；如需完整内容请重新调用相应工具]";
+    return new ToolMessage({
+      content: truncated,
+      tool_call_id: m.tool_call_id,
+      name: typeof m.name === "string" ? m.name : undefined,
+    });
+  });
+}
+
 /** 创建 SessionController 所需依赖 */
 export interface SessionControllerDeps {
   config: AppConfig;
@@ -56,6 +86,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   private history: BaseMessage[] = [];
   private readonly graph: ReturnType<typeof createAgentGraph>;
   private readonly maxIterations: number;
+  /** 历史工具结果重发时的字节上限（US-015，0=不压缩） */
+  private readonly historyToolResultMaxBytes: number;
   /** 当前运行的中断控制器（用于 Esc 中断）；空闲时为 null */
   private currentAbort: AbortController | null = null;
   /** 可选的 Langfuse 监控回调；未配置时为 undefined */
@@ -64,6 +96,7 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   constructor(deps: SessionControllerDeps) {
     super();
     this.maxIterations = deps.config.maxIterations;
+    this.historyToolResultMaxBytes = deps.config.historyToolResultMaxBytes;
     // 用自身作为 prompter 构建授权管理器，再构建主循环图
     const manager = createPermissionManager({
       litecodeDir: deps.litecodeDir,
@@ -75,6 +108,7 @@ export class SessionController extends EventEmitter implements AuthPrompter {
       tools: deps.tools,
       manager,
       maxIterations: this.maxIterations,
+      promptCaching: deps.config.promptCaching,
     });
     // 可选监控：配置齐全才创建，否则 undefined（不影响运行）
     this.langfuse = createLangfuseHandler(deps.config);
@@ -118,7 +152,11 @@ export class SessionController extends EventEmitter implements AuthPrompter {
     this.currentAbort = abort;
 
     const human = new HumanMessage(text);
-    const inputMessages = [...this.history, human];
+    // 重发给模型前压缩历史里的大块旧工具结果，降低多轮输入 token（不改动 this.history）
+    const inputMessages = compactToolResults(
+      [...this.history, human],
+      this.historyToolResultMaxBytes,
+    );
     const collected: BaseMessage[] = [human];
 
     try {
