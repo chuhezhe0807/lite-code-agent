@@ -1,32 +1,32 @@
 /**
- * 防抖函数
- * 核心思想：在事件被触发后，延迟 delay 毫秒再执行回调；
- * 若在延迟期间再次触发，则重置计时器，重新计时。
- * 常用场景：搜索框输入联想、窗口 resize、按钮防重复点击等。
+ * Debounce function
+ * Core idea: delay the callback execution by `delay` milliseconds after the event is triggered;
+ * if the event fires again during the delay period, reset the timer and restart the countdown.
+ * Common use cases: search input suggestions, window resize, preventing duplicate button clicks, etc.
  *
- * @param fn    需要防抖处理的目标函数
- * @param delay 延迟执行的等待时间（毫秒）
- * @returns     经过防抖包装后的新函数
+ * @param fn    The target function to be debounced
+ * @param delay The waiting time (in milliseconds) before the function is executed
+ * @returns     A new debounce-wrapped function
  */
 export const debounce = <T extends (...args: any[]) => void>(
   fn: T,
   delay: number
 ): ((...args: Parameters<T>) => void) => {
-  // 用于存储定时器 ID，初始为 null
+  // Stores the timer ID; initialized to null
   let timer: ReturnType<typeof setTimeout> | null = null;
 
-  // 返回包装后的防抖函数
+  // Return the debounce-wrapped function
   return (...args: Parameters<T>): void => {
-    // 若已存在未执行的定时器，则先清除，避免重复触发
+    // If a pending timer already exists, clear it to prevent duplicate execution
     if (timer !== null) {
       clearTimeout(timer);
     }
 
-    // 重新开启定时器，在 delay 毫秒后执行目标函数
+    // Start a new timer to execute the target function after `delay` milliseconds
     timer = setTimeout(() => {
-      // 使用原始上下文与参数调用目标函数
+      // Invoke the target function with the original arguments
       fn(...args);
-      // 执行完毕后将定时器 ID 置空，释放引用
+      // Reset the timer ID to null after execution to free the reference
       timer = null;
     }, delay);
   };

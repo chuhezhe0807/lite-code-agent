@@ -33,6 +33,23 @@ function clampCount(text: string, maxCount = MAX_BLOCK_COUNT): string {
   );
 }
 
+/** 从 run_command 工具调用的参数文本中解析出命令字符串，失败或缺字段时返回 null */
+function parseCommand(text: string): string | null {
+  try {
+    const args = JSON.parse(text) as unknown;
+    if (
+      args &&
+      typeof args === "object" &&
+      typeof (args as { command?: unknown }).command === "string"
+    ) {
+      return (args as { command: string }).command;
+    }
+  } catch {
+    // 非合法 JSON，回退通用渲染
+  }
+  return null;
+}
+
 /** 单个渲染块的展示 */
 function BlockView({ block }: { block: Block }): React.ReactElement {
   switch (block.kind) {
@@ -49,13 +66,25 @@ function BlockView({ block }: { block: Block }): React.ReactElement {
           <Text color="white">{block.text}</Text>
         </Box>
       );
-    case "tool-call":
+    case "tool-call": {
+      // run_command 工具直接展示命令本身，用执行工具名包裹，如 Bash(npm test)
+      if (block.toolName === "run_command") {
+        const command = parseCommand(block.text);
+        if (command !== null) {
+          return (
+            <Box marginTop={1} borderStyle="round" borderColor="blue" paddingX={1} flexDirection="column">
+              <Text color="blue">{clampCount(`Bash(${command})`)}</Text>
+            </Box>
+          );
+        }
+      }
       return (
         <Box marginTop={1} borderStyle="round" borderColor="blue" paddingX={1} flexDirection="column">
           <Text color="blue">⚙ 调用工具：{block.toolName}</Text>
           <Text color="gray">{clampCount(block.text)}</Text>
         </Box>
       );
+    }
     case "tool-result":
       return (
         <Box marginLeft={2} flexDirection="column">
