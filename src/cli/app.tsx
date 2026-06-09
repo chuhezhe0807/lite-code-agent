@@ -12,11 +12,12 @@
 
 import React, { useEffect, useState } from "react";
 import { Box, Text, useApp, useInput, render } from "ink";
-import TextInput from "ink-text-input";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
 import type { Todo } from "../tools/index.js";
 import { ThinkingIndicator } from "./thinking.js";
+import PromptInput from "./promptInput.js";
+import { loadHistory, appendHistory } from "./history.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
 const MAX_BLOCK_COUNT = 100;
@@ -203,13 +204,20 @@ function TodoView({ todos }: { todos: Todo[] }): React.ReactElement {
 }
 
 /** 主应用组件 */
-function App({ controller }: { controller: SessionController }): React.ReactElement {
+function App({
+  controller,
+  litecodeDir,
+}: {
+  controller: SessionController;
+  litecodeDir: string;
+}): React.ReactElement {
   const { exit } = useApp();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [phase, setPhase] = useState<Phase>("idle");
   const [auth, setAuth] = useState<AuthRequest | null>(null);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
+  const [history, setHistory] = useState<string[]>(() => loadHistory(litecodeDir));
 
   // 订阅 controller 事件
   useEffect(() => {
@@ -259,6 +267,7 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
       return;
     }
     if (v.length === 0) return;
+    setHistory(appendHistory(litecodeDir, v));
     void controller.submit(v);
   };
 
@@ -279,11 +288,14 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
       {phase === "idle" && (
         <Box marginTop={1}>
           <Text color="cyan">{"> "}</Text>
-          <TextInput
+          <PromptInput
             value={input}
             onChange={setInput}
             onSubmit={onSubmit}
             placeholder="输入任务，/exit 退出"
+            history={history}
+            isActive={phase === "idle"}
+            promptWidth={2}
           />
         </Box>
       )}
@@ -294,7 +306,8 @@ function App({ controller }: { controller: SessionController }): React.ReactElem
 /**
  * 启动 Ink CLI。
  * @param controller 已构建好的会话控制器
+ * @param litecodeDir .litecode 目录绝对路径（用于持久化输入历史）
  */
-export function startCli(controller: SessionController): void {
-  render(<App controller={controller} />);
+export function startCli(controller: SessionController, litecodeDir: string): void {
+  render(<App controller={controller} litecodeDir={litecodeDir} />);
 }

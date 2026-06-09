@@ -79,7 +79,7 @@ function main(): void {
     settings,
     litecodeDir,
   });
-  startCli(controller);
+  startCli(controller, litecodeDir);
 }
 
 main();
