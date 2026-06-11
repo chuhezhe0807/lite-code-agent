@@ -88,6 +88,12 @@ export interface AppConfig {
    * 仅影响后续轮的重发，不影响该结果产生当轮的完整可见。
    */
   historyToolResultMaxBytes: number;
+  /**
+   * 触发对话历史自动压缩的字节阈值（US-024，默认 60KB，0=关闭）。
+   * 当跨轮累积 history 的估算字节数超过该值时，提交前用 LLM 摘要较旧历史、保留最近若干轮，
+   * 避免长会话历史无限增长撑爆 context window。
+   */
+  historyCompactionMaxBytes: number;
   /** 沙箱配置（US-016） */
   sandbox: SandboxConfig;
   /** Langfuse 监控配置（可选） */
@@ -104,6 +110,7 @@ interface RawConfigFile {
   maxIterations?: number;
   promptCaching?: boolean;
   historyToolResultMaxBytes?: number;
+  historyCompactionMaxBytes?: number;
   sandbox?: Partial<SandboxConfig>;
   langfuse?: LangfuseConfig;
 }
@@ -118,6 +125,7 @@ const DEFAULTS = {
   maxIterations: 25,
   promptCaching: false,
   historyToolResultMaxBytes: 8192,
+  historyCompactionMaxBytes: 60 * 1024,
   sandboxBackend: "auto" as SandboxBackendChoice,
   sandboxAllowNetwork: true,
 };
@@ -217,6 +225,10 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
     ),
     historyToolResultMaxBytes:
       file.historyToolResultMaxBytes ?? DEFAULTS.historyToolResultMaxBytes,
+    historyCompactionMaxBytes: parseIntEnv(
+      process.env.HISTORY_COMPACTION_MAX_BYTES,
+      file.historyCompactionMaxBytes ?? DEFAULTS.historyCompactionMaxBytes,
+    ),
     sandbox,
     langfuse: isLangfuseEnabled(langfuse) ? langfuse : undefined,
   };
@@ -232,6 +244,13 @@ function parseBool(raw: string | undefined, fallback: boolean): boolean {
   if (["1", "true", "yes", "on"].includes(v)) return true;
   if (["0", "false", "no", "off"].includes(v)) return false;
   return fallback;
+}
+
+/** 解析整数型环境变量；未设置或非法时回落到 fallback。 */
+function parseIntEnv(raw: string | undefined, fallback: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 /** 判断 Langfuse 是否配置齐全（publicKey + secretKey 必须都有才算启用） */

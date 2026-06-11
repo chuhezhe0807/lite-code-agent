@@ -27,6 +27,13 @@ import type { LocalSettings } from "../permissions/settings.js";
 import { createPermissionManager } from "../permissions/manager.js";
 import type { AuthPrompter, AuthChoice } from "../permissions/prompter.js";
 import { createAgentGraph } from "../agent/graph.js";
+import {
+  planCompaction,
+  applyCompaction,
+  renderTranscript,
+  SUMMARY_SYSTEM_PROMPT,
+} from "../agent/compaction.js";
+import { SystemMessage } from "@langchain/core/messages";
 import { createLangfuseHandler } from "../observability/langfuse.js";
 import type { CallbackHandler } from "langfuse-langchain";
 import type { Block } from "./types.js";
@@ -83,7 +90,7 @@ function compactToolResults(
  * @param messages 中断时已累积的消息（含本轮用户输入与部分 AI 产出）
  * @returns 修复后的新数组（不改动入参）
  */
-function sanitizeForResume(messages: BaseMessage[]): BaseMessage[] {
+export function sanitizeForResume(messages: BaseMessage[]): BaseMessage[] {
   const resolvedIds = new Set<string>();
   for (const m of messages) {
     if (m instanceof ToolMessage && typeof m.tool_call_id === "string") {
@@ -125,6 +132,10 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   private readonly maxIterations: number;
   /** 历史工具结果重发时的字节上限（US-015，0=不压缩） */
   private readonly historyToolResultMaxBytes: number;
+  /** 触发历史自动压缩的字节阈值（US-024，0=关闭） */
+  private readonly historyCompactionMaxBytes: number;
+  /** 摘要用模型（与主模型同一实例，但不绑定工具） */
+  private readonly model: BaseChatModel;
   /** 当前运行的中断控制器；空闲时为 null */
   private currentAbort: AbortController | null = null;
   /**
@@ -140,6 +151,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
     super();
     this.maxIterations = deps.config.maxIterations;
     this.historyToolResultMaxBytes = deps.config.historyToolResultMaxBytes;
+    this.historyCompactionMaxBytes = deps.config.historyCompactionMaxBytes;
+    this.model = deps.model;
     // 用自身作为 prompter 构建授权管理器，再构建主循环图
     const manager = createPermissionManager({
       litecodeDir: deps.litecodeDir,
@@ -189,6 +202,10 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   async submit(text: string): Promise<void> {
     this.pushBlock({ kind: "user", text });
     this.emit("phase", "running");
+
+    // 历史过长时先压缩（US-024）：把旧历史摘要化，保留最近若干轮，避免撑爆上下文。
+    // 失败时内部已回退为不压缩，不影响本轮。
+    await this.maybeCompactHistory();
 
     // 每轮运行创建独立的中断控制器，signal 透传给图（贯穿 LLM 调用与工具执行）
     const abort = new AbortController();
@@ -264,6 +281,34 @@ export class SessionController extends EventEmitter implements AuthPrompter {
         }
       }
       this.emit("phase", "idle");
+    }
+  }
+
+  /**
+   * 历史自动压缩（US-024）：当跨轮 history 估算字节超过阈值时，
+   * 用 LLM 把较旧历史摘要成一段精简上下文，折叠进保留段首条用户消息。
+   * 任何失败都回退为「保持原历史」，绝不因压缩而中断对话。
+   */
+  private async maybeCompactHistory(): Promise<void> {
+    const plan = planCompaction(this.history, this.historyCompactionMaxBytes);
+    if (!plan) return;
+
+    const older = this.history.slice(0, plan.cut);
+    this.pushBlock({ kind: "info", text: "历史较长，正在压缩以节省上下文…" });
+    try {
+      const res = await this.model.invoke([
+        new SystemMessage(SUMMARY_SYSTEM_PROMPT),
+        new HumanMessage(renderTranscript(older)),
+      ]);
+      const summary = textOf(res.content).trim();
+      if (!summary) return; // 摘要为空则不冒险改动历史
+      this.history = applyCompaction(this.history, plan.cut, summary);
+      this.pushBlock({
+        kind: "info",
+        text: `已压缩较早的 ${older.length} 条历史消息。`,
+      });
+    } catch {
+      // 压缩失败：保持原历史，本轮照常进行
     }
   }
 
