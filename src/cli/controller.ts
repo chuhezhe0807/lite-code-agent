@@ -72,6 +72,43 @@ function compactToolResults(
   });
 }
 
+/**
+ * 修复「续接式中断」时的半截消息序列，使其满足 tool_use/tool_result 配对约束。
+ *
+ * 中断可能发生在某个 tool_call 已发起、但其 tool_result 尚未返回时。直接把这半截
+ * 对话写入历史，下一轮重发给模型会因「有 tool_use 却无配对 tool_result」被 API 拒绝(400)。
+ * 这里为每个悬空的 tool_call 追加一条标记「已被用户中断」的 ToolMessage，让模型在下一轮
+ * 既看到 agent 当时想做什么、又知道它被用户打断，从而据用户纠正指令调整继续。
+ *
+ * @param messages 中断时已累积的消息（含本轮用户输入与部分 AI 产出）
+ * @returns 修复后的新数组（不改动入参）
+ */
+function sanitizeForResume(messages: BaseMessage[]): BaseMessage[] {
+  const resolvedIds = new Set<string>();
+  for (const m of messages) {
+    if (m instanceof ToolMessage && typeof m.tool_call_id === "string") {
+      resolvedIds.add(m.tool_call_id);
+    }
+  }
+  const synthesized: ToolMessage[] = [];
+  for (const m of messages) {
+    const calls = (m as AIMessage).tool_calls;
+    if (!Array.isArray(calls)) continue;
+    for (const call of calls) {
+      if (call.id && !resolvedIds.has(call.id)) {
+        synthesized.push(
+          new ToolMessage({
+            content: "[已被用户中断，未执行/未完成]",
+            tool_call_id: call.id,
+            name: call.name,
+          }),
+        );
+      }
+    }
+  }
+  return [...messages, ...synthesized];
+}
+
 /** 创建 SessionController 所需依赖 */
 export interface SessionControllerDeps {
   config: AppConfig;
@@ -88,8 +125,14 @@ export class SessionController extends EventEmitter implements AuthPrompter {
   private readonly maxIterations: number;
   /** 历史工具结果重发时的字节上限（US-015，0=不压缩） */
   private readonly historyToolResultMaxBytes: number;
-  /** 当前运行的中断控制器（用于 Esc 中断）；空闲时为 null */
+  /** 当前运行的中断控制器；空闲时为 null */
   private currentAbort: AbortController | null = null;
+  /**
+   * 本轮中断的处理方式：
+   *   discard —— 丢弃半截对话（Esc）；resume —— 修复并保留半截对话以续接（Ctrl+C）。
+   * 在 abort(kind) 时写入，catch 分支据此分流。
+   */
+  private abortKind: "discard" | "resume" = "discard";
   /** 可选的 Langfuse 监控回调；未配置时为 undefined */
   private readonly langfuse: CallbackHandler | undefined;
 
@@ -150,6 +193,9 @@ export class SessionController extends EventEmitter implements AuthPrompter {
     // 每轮运行创建独立的中断控制器，signal 透传给图（贯穿 LLM 调用与工具执行）
     const abort = new AbortController();
     this.currentAbort = abort;
+    // 默认丢弃；若被 Ctrl+C 续接式中断，abort("resume") 会在 await 期间改写。
+    // 显式标注联合类型，避免 TS 把字段窄化为字面量 "discard" 导致后续比较被判为恒假。
+    this.abortKind = "discard" as "discard" | "resume";
 
     const human = new HumanMessage(text);
     // 重发给模型前压缩历史里的大块旧工具结果，降低多轮输入 token（不改动 this.history）
@@ -188,9 +234,19 @@ export class SessionController extends EventEmitter implements AuthPrompter {
       this.history = [...this.history, ...collected];
     } catch (err) {
       if (abort.signal.aborted) {
-        // 被用户中断：提示「已中断」，且不把这半截对话写入历史，
-        // 避免遗留「有 tool_use 却无 tool_result」的悬空消息导致下轮请求 400。
-        this.pushBlock({ kind: "info", text: "已中断。" });
+        if (this.abortKind === "resume") {
+          // 续接式中断（Ctrl+C）：修复悬空 tool_call 后保留半截对话，
+          // 让下一轮带着「之前做到哪」的上下文，据用户纠正指令调整继续。
+          this.history = [...this.history, ...sanitizeForResume(collected)];
+          this.pushBlock({
+            kind: "info",
+            text: "已中断，请输入纠正指令后继续。",
+          });
+        } else {
+          // 丢弃式中断（Esc）：不把这半截对话写入历史，
+          // 避免遗留「有 tool_use 却无 tool_result」的悬空消息导致下轮请求 400。
+          this.pushBlock({ kind: "info", text: "已中断。" });
+        }
       } else {
         this.pushBlock({
           kind: "error",
@@ -211,8 +267,12 @@ export class SessionController extends EventEmitter implements AuthPrompter {
     }
   }
 
-  /** 中断当前正在运行的 agent（Esc 触发）。空闲时无操作。 */
-  abort(): void {
+  /**
+   * 中断当前正在运行的 agent。空闲时无操作。
+   * @param kind discard=丢弃半截对话（Esc）；resume=保留并修复以续接（Ctrl+C）。默认 discard。
+   */
+  abort(kind: "discard" | "resume" = "discard"): void {
+    this.abortKind = kind;
     this.currentAbort?.abort();
   }
 

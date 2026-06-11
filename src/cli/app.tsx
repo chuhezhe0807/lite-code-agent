@@ -10,7 +10,7 @@
  *   - auth    需要用户按键授权（y/n/a/d 或 y/n 确认），此时用 useInput 捕获按键。
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Box, Text, useApp, useInput, render } from "ink";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
@@ -21,6 +21,9 @@ import { loadHistory, appendHistory } from "./history.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
 const MAX_BLOCK_COUNT = 100;
+
+/** 运行中两次 Ctrl+C 判定为「退出」的时间窗口（毫秒）；超过则第二次视为新的续接式中断 */
+const DOUBLE_CTRL_C_WINDOW_MS = 1500;
 
 /** 把文本裁剪到最多 maxCount 个字符，超出时追加省略提示 */
 function clampCount(text: string, maxCount = MAX_BLOCK_COUNT): string {
@@ -240,12 +243,37 @@ function App({
     };
   }, [controller]);
 
-  // running 阶段监听 Esc 中断当前运行
+  // 上次按下 Ctrl+C 的时间戳，用于运行阶段「双击退出」判定
+  const lastCtrlCRef = useRef(0);
+
+  // running 阶段：Esc 丢弃式中断；Ctrl+C 续接式中断（双击退出）
   useInput(
-    (_char, key) => {
-      if (key.escape) controller.abort();
+    (input, key) => {
+      if (key.escape) {
+        controller.abort("discard");
+        return;
+      }
+      if (key.ctrl && input === "c") {
+        const now = Date.now();
+        // 窗口内再次按下 → 退出程序
+        if (now - lastCtrlCRef.current <= DOUBLE_CTRL_C_WINDOW_MS) {
+          exit();
+          return;
+        }
+        lastCtrlCRef.current = now;
+        // 单击 → 续接式中断：保留上下文、回到输入框等待纠正指令
+        controller.abort("resume");
+      }
     },
     { isActive: phase === "running" },
+  );
+
+  // idle 阶段：单按 Ctrl+C 直接退出（无二次确认）
+  useInput(
+    (input, key) => {
+      if (key.ctrl && input === "c") exit();
+    },
+    { isActive: phase === "idle" },
   );
 
   // auth 阶段：用户用方向键选择后回传结果
@@ -309,5 +337,9 @@ function App({
  * @param litecodeDir .litecode 目录绝对路径（用于持久化输入历史）
  */
 export function startCli(controller: SessionController, litecodeDir: string): void {
-  render(<App controller={controller} litecodeDir={litecodeDir} />);
+  // 关闭 Ink 默认的 Ctrl+C 退出，改由各阶段 useInput 自行管理
+  // （running 单击续接 / 双击退出，idle 单击退出）
+  render(<App controller={controller} litecodeDir={litecodeDir} />, {
+    exitOnCtrlC: false,
+  });
 }
