@@ -10,6 +10,8 @@ import type { SandboxBackend } from "../sandbox/types.js";
 import type { ToolSpec } from "./types.js";
 import { createReadFileTool } from "./readFile.js";
 import { createListDirTool } from "./listDir.js";
+import { createGrepTool } from "./grep.js";
+import { createGlobTool } from "./glob.js";
 import { createWriteFileTool } from "./writeFile.js";
 import { createEditFileTool } from "./editFile.js";
 import { createRunCommandTool } from "./runCommand.js";
@@ -31,6 +33,8 @@ export function createTools(
   return [
     createReadFileTool(config),
     createListDirTool(config),
+    createGrepTool(config),
+    createGlobTool(config),
     createWriteFileTool(config),
     createEditFileTool(config),
     createRunCommandTool(config, backend),

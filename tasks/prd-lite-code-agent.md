@@ -268,10 +268,34 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - [ ] 拒绝时按 US-007 将拒绝信息作为工具结果回传给 agent，不崩溃。
 - [ ] 代码含中文注释；Typecheck passes。
 
+### US-022: 只读工具 —— 按内容正则搜索（grep）
+**Description:** As a user, I want agent 能按正则在项目里搜索文件内容, so that 它能快速定位符号/关键字所在的文件与行，而不必盲目逐个读文件。
+
+**Acceptance Criteria:**
+- [ ] 实现 `grep(pattern, path?, include?)` 工具：在工作目录内按正则搜索文件内容，命中以 `文件:行号:行内容` 形式返回。
+- [ ] `pattern` 为正则字符串；`path` 可选限定搜索子目录（默认工作目录根 `.`）；`include` 可选按文件名 glob 过滤（如 `*.ts`）。
+- [ ] 路径经 `resolveSafePath` 工作目录白名单校验，越界返回明确错误而非搜索。
+- [ ] 默认跳过常见噪音目录（`node_modules`/`.git`/`dist`）与疑似二进制文件，避免噪音与卡顿。
+- [ ] 匹配过多时截断：返回总匹配数 + 前 N 条并提示用更具体的 `pattern`/`path`/`include` 缩小范围；无匹配返回明确提示。
+- [ ] 非法正则返回可读错误，不崩溃。
+- [ ] 工具标注为「只读」授权级别（无文件副作用），默认放行（见 US-007）。
+- [ ] 代码含中文注释；Typecheck passes。
+
+### US-023: 只读工具 —— 按文件名模式查找（glob）
+**Description:** As a user, I want agent 能按文件名 glob 模式递归查找文件, so that 它能在不了解目录结构时快速找到目标文件。
+
+**Acceptance Criteria:**
+- [ ] 实现 `glob(pattern, path?)` 工具：在工作目录内按文件名 glob 模式（如 `**/*.ts`、`src/**/*.tsx`）递归查找文件，返回相对工作目录的匹配路径列表。
+- [ ] `path` 可选限定搜索根（默认工作目录根 `.`），路径经 `resolveSafePath` 白名单校验，越界返回明确错误。
+- [ ] 默认跳过常见噪音目录（`node_modules`/`.git`/`dist`）。
+- [ ] 结果按路径排序；过多时截断（总数 + 前 N 条并提示缩小范围）；无匹配返回明确提示。
+- [ ] 工具标注为「只读」授权级别（无文件副作用），默认放行（见 US-007）。
+- [ ] 代码含中文注释；Typecheck passes。
+
 ## 4. Functional Requirements
 
 - FR-1: 系统必须基于 LangGraph 的 `StateGraph` 实现 agent 主循环，包含 `agent` 与 `tools` 两个核心节点及条件边。
-- FR-2: 系统必须提供工具：`read_file`、`list_dir`、`write_file`、`edit_file`、`run_command`。
+- FR-2: 系统必须提供工具：`read_file`、`list_dir`、`grep`、`glob`、`write_file`、`edit_file`、`run_command`。
 - FR-3: 所有涉及路径的工具必须将路径限制在配置的工作目录白名单内，越界操作必须被拒绝。
 - FR-4: `run_command` 必须使用 `child_process` 执行，锁定 `cwd`，并强制可配置的执行超时。
 - FR-5: `edit_file` 必须基于 `old_string`/`new_string` 精确替换，`old_string` 不唯一或不存在时报错且不修改。
@@ -289,6 +313,7 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - FR-17: 系统必须支持可选的 Langfuse 监控；当 Langfuse 配置缺失时自动跳过且不影响运行。
 - FR-18: 项目代码必须包含中文注释，关键模块（图、工具、授权、provider、UI）需有解释性说明。
 - FR-19:（后续优化）系统应提供降低 token 消耗的手段：精简系统提示、可选 prompt caching、可调的工具输出预算；UI 展示裁剪不得与 token 用量混淆。
+- FR-20: 系统必须提供只读搜索工具 `grep`（按正则搜索文件内容，返回 `文件:行号:行内容`）与 `glob`（按文件名模式递归查找文件）；二者均经工作目录白名单校验、默认跳过噪音目录、结果过多时截断提示，标注为只读授权级别。
 
 ## 5. Non-Goals（明确不做）
 
