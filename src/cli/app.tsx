@@ -323,7 +323,6 @@ function App({
             placeholder="输入任务，/exit 退出"
             history={history}
             isActive={phase === "idle"}
-            promptWidth={2}
           />
         </Box>
       )}
