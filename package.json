@@ -21,16 +21,16 @@
     "@langchain/core": "^0.3.0",
     "@langchain/langgraph": "^0.2.0",
     "dotenv": "^16.4.0",
-    "ink": "^5.2.1",
+    "ink": "^7.0.5",
     "ink-spinner": "^5.0.0",
-    "ink-text-input": "^6.0.0",
     "langfuse-langchain": "^3.38.20",
-    "react": "^18.3.1",
+    "react": "^19.2.0",
+    "string-width": "^8.2.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
-    "@types/react": "^18.3.30",
+    "@types/react": "^19.2.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^4.1.8"

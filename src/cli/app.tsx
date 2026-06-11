@@ -314,17 +314,14 @@ function App({
       )}
 
       {phase === "idle" && (
-        <Box marginTop={1}>
-          <Text color="cyan">{"> "}</Text>
-          <PromptInput
-            value={input}
-            onChange={setInput}
-            onSubmit={onSubmit}
-            placeholder="输入任务，/exit 退出"
-            history={history}
-            isActive={phase === "idle"}
-          />
-        </Box>
+        <PromptInput
+          value={input}
+          onChange={setInput}
+          onSubmit={onSubmit}
+          placeholder="输入任务，/exit 退出"
+          history={history}
+          isActive={phase === "idle"}
+        />
       )}
     </Box>
   );
