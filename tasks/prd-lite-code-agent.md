@@ -292,6 +292,26 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - [ ] 工具标注为「只读」授权级别（无文件副作用），默认放行（见 US-007）。
 - [ ] 代码含中文注释；Typecheck passes。
 
+### US-024: 对话历史自动压缩（compaction）
+**Description:** As a user, I want 长会话在接近上下文上限时自动把旧历史摘要化, so that 我能持续对话而不会因为历史无限增长撑爆 context window 或浪费 token（对应 Claude Code 的 /compact）。
+
+**Acceptance Criteria:**
+- [ ] 新增配置 `historyCompactionMaxBytes`（默认 60KB，0=关闭）+ 环境变量 `HISTORY_COMPACTION_MAX_BYTES`：当跨轮累积 history 的估算字节数超过该阈值时触发压缩。
+- [ ] 压缩时把较旧的历史交给 LLM 摘要成一段精简上下文（保留关键决定、改动的文件、当前状态），并保留最近若干轮原样。
+- [ ] 摘要与保留段拼接必须满足 `tool_use`/`tool_result` 配对约束：在 `HumanMessage` 边界切分，摘要折叠进保留段首条用户消息，不得遗留悬空 `tool_call` 或孤儿 `tool_result`。
+- [ ] 压缩失败（LLM 出错等）时回退使用未压缩历史，不中断本轮；压缩时向 UI 给出提示（如「正在压缩历史…」）。
+- [ ] 把纯逻辑（字节估算 / 切分计划 / 应用摘要 / 转写 transcript）抽成独立可单测的纯函数，模型调用留在 controller。
+- [ ] 代码含中文注释；Typecheck passes；Tests pass。
+
+### US-025: 自动化测试（vitest 回归保护）
+**Description:** As a maintainer, I want 一套自动化单元测试覆盖关键纯函数, so that 后续重构/扩展时能快速发现回归，而不是每次都靠临时脚本手验。
+
+**Acceptance Criteria:**
+- [ ] 引入 `vitest` 开发依赖，新增 npm script `test`（如 `vitest run`）。
+- [ ] 为以下纯函数补回归测试：`security/path`（resolveSafePath 越界/相对/绝对内、isPathInside）、`permissions/match`（parseRule / matchPattern / matchesAny / generalizeRule）、`controller` 的 `sanitizeForResume`（悬空 tool_call 合成）、`util/diff`（formatReplaceDiff）、`util/truncate`（truncateHeadTail 头尾 + 单行硬截断）、`util/glob`（globToRegExp / createGlobMatcher）、`agent/compaction`（planCompaction / applyCompaction）。
+- [ ] 为可测函数导出必要的内部符号（如 `sanitizeForResume`）。
+- [ ] `npm test` 全绿；Typecheck passes。
+
 ## 4. Functional Requirements
 
 - FR-1: 系统必须基于 LangGraph 的 `StateGraph` 实现 agent 主循环，包含 `agent` 与 `tools` 两个核心节点及条件边。
@@ -314,6 +334,8 @@ Agent 在 CLI 终端中与用户对话，能够理解自然语言任务，调用
 - FR-18: 项目代码必须包含中文注释，关键模块（图、工具、授权、provider、UI）需有解释性说明。
 - FR-19:（后续优化）系统应提供降低 token 消耗的手段：精简系统提示、可选 prompt caching、可调的工具输出预算；UI 展示裁剪不得与 token 用量混淆。
 - FR-20: 系统必须提供只读搜索工具 `grep`（按正则搜索文件内容，返回 `文件:行号:行内容`）与 `glob`（按文件名模式递归查找文件）；二者均经工作目录白名单校验、默认跳过噪音目录、结果过多时截断提示，标注为只读授权级别。
+- FR-21: 系统应在跨轮历史估算字节超过可配置阈值（`historyCompactionMaxBytes`）时自动压缩对话历史：用 LLM 摘要较旧历史、保留最近若干轮，且摘要后的消息序列必须满足 `tool_use`/`tool_result` 配对约束；压缩失败时回退未压缩历史，不中断本轮。
+- FR-22: 项目必须提供基于 `vitest` 的自动化单元测试（`npm test`）覆盖关键纯函数（路径安全、授权匹配、续接修复、diff、截断、glob、历史压缩计划），作为回归保护。
 
 ## 5. Non-Goals（明确不做）
 

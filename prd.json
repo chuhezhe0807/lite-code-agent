@@ -399,6 +399,39 @@
       "priority": 23,
       "passes": true,
       "notes": "已完成。src/tools/glob.ts：复用 src/util/glob.ts 的 createGlobMatcher/walkFiles/relPosix；resolveSafePath 校验搜索根(越界拒绝)；匹配按「相对搜索根」路径判定(与用户写的 pattern 直觉一致)，展示用「相对工作目录」路径便于直接 read_file；结果排序、超 100 个截断提示、无匹配明确提示；支持 AbortSignal 提前中断遍历。level=read 免授权。已注册到 tools/index。验证(对本仓库)：**/*.ts(src/tools)/  *.json(basename 模式匹配任意层级)/无匹配/越界 全部符合预期；typecheck 通过。代码全程中文注释。"
+    },
+    {
+      "id": "US-024",
+      "title": "对话历史自动压缩（compaction）",
+      "description": "As a user, I want 长会话在接近上下文上限时自动把旧历史摘要化 so that 我能持续对话而不会因为历史无限增长撑爆 context window 或浪费 token（对应 Claude Code 的 /compact）。",
+      "acceptanceCriteria": [
+        "新增配置 historyCompactionMaxBytes（默认 60KB，0=关闭）+ 环境变量 HISTORY_COMPACTION_MAX_BYTES：跨轮累积 history 估算字节超过阈值时触发压缩",
+        "压缩时把较旧历史交给 LLM 摘要成精简上下文（保留关键决定/改动文件/当前状态），保留最近若干轮原样",
+        "摘要与保留段拼接必须满足 tool_use/tool_result 配对约束：在 HumanMessage 边界切分，摘要折叠进保留段首条用户消息，不遗留悬空 tool_call 或孤儿 tool_result",
+        "压缩失败（LLM 出错等）回退使用未压缩历史，不中断本轮；压缩时向 UI 给出提示",
+        "把纯逻辑（字节估算/切分计划/应用摘要/转写）抽成独立可单测的纯函数，模型调用留在 controller",
+        "代码含中文注释",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 24,
+      "passes": true,
+      "notes": "已完成。新增 src/agent/compaction.ts（纯逻辑，可单测）：estimateMessageBytes/totalBytes（含 tool_calls JSON 计入）、planCompaction（仅在 >0 的 HumanMessage 边界切分，返回保留段起点 cut；尽量把保留段压到 maxBytes*keepRatio 内，否则退到最后一个 Human 边界）、applyCompaction（把旧段摘要折叠进保留段首条用户消息，避免双 Human/孤儿 tool_result）、renderTranscript、SUMMARY_SYSTEM_PROMPT。config 新增 historyCompactionMaxBytes（默认 60KB，0=关闭）+ env HISTORY_COMPACTION_MAX_BYTES + parseIntEnv。controller.submit 开头调用 maybeCompactHistory：planCompaction 命中则用 model.invoke 摘要旧段、applyCompaction 写回 this.history，失败/空摘要回退原历史不中断，并 emit info 提示。sanitizeForResume 导出供测试。验证：vitest 覆盖 planCompaction（0/未超/单 Human/切在 Human 边界）、applyCompaction（折叠+配对不破坏）、renderTranscript；typecheck 通过。代码全程中文注释。"
+    },
+    {
+      "id": "US-025",
+      "title": "自动化测试（vitest 回归保护）",
+      "description": "As a maintainer, I want 一套自动化单元测试覆盖关键纯函数 so that 后续重构/扩展时能快速发现回归，而不是每次靠临时脚本手验。",
+      "acceptanceCriteria": [
+        "引入 vitest 开发依赖，新增 npm script test（如 vitest run）",
+        "为纯函数补回归测试：security/path（resolveSafePath 越界/相对/绝对内、isPathInside）、permissions/match（parseRule/matchPattern/matchesAny/generalizeRule）、controller.sanitizeForResume、util/diff（formatReplaceDiff）、util/truncate（truncateHeadTail 头尾+单行硬截断）、util/glob（globToRegExp/createGlobMatcher）、agent/compaction（planCompaction/applyCompaction）",
+        "为可测函数导出必要的内部符号（如 sanitizeForResume）",
+        "npm test 全绿",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": true,
+      "notes": "已完成。pnpm add -D vitest；package.json 新增 script test=vitest run；vitest.config.ts 把 include 限定为 test/**/*.test.ts（排除 examples/ 的独立演示项目，其 *.test.js 非 vitest 用例）。新增 7 个测试文件共 47 个用例：test/path（resolveSafePath 相对/绝对内/越界、isPathInside）、test/match（parseRule/matchPattern 字面转义+整体锚定/matchesAny/generalizeRule execute+write）、test/diff（formatReplaceDiff）、test/truncate（未超原样/多行头尾省略/单行硬截断）、test/glob（globToRegExp **//*/?/元字符、createGlobMatcher basename vs 路径、toPosix）、test/resume（sanitizeForResume 悬空合成/已解决不重复/无悬空原样）、test/compaction（estimate/total、planCompaction、applyCompaction 折叠+配对、renderTranscript）。npm test 全绿（7 files / 47 tests），typecheck 通过。"
     }
   ]
 }
