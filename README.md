@@ -42,7 +42,7 @@ pnpm install
 
 ## 配置
 
-凭证与运行参数从 **环境变量 / `.env`** 与 **`config.json`** 合并加载（优先级：环境变量 > config.json > 默认值）。
+所有配置只来自 **环境变量 / `.env`**（单一来源，未设置则用内置默认值）。完整变量清单见 `.env.example`。
 
 复制 `.env.example` 为 `.env`，填入凭证（二选一）：
 
@@ -50,21 +50,22 @@ pnpm install
 # 方式一：官方 Anthropic，x-api-key
 ANTHROPIC_API_KEY=sk-ant-xxxx
 # 方式二：代理/网关（如 LiteLLM）或 Claude Code 习惯的 Bearer 方式
-ANTHROPIC_AUTH_TOKEN=sk-xxxx
+ANTHROPIC_LLM_AUTH_TOKEN=sk-xxxx
 ANTHROPIC_BASE_URL=https://your-proxy/      # 可选，自定义网关
 # LLM_MODEL=claude-sonnet-4-6               # 可选
 # WORKDIR=./examples                        # 可选，agent 可操作的目录
 ```
 
-结构化参数放 `config.json`（见 `config.example.json`）：
+常用运行参数（均可选，默认值见下）：
 
-| 字段 | 说明 | 默认 |
+| 环境变量 | 说明 | 默认 |
 |---|---|---|
-| `workdir` | agent 可操作的目录（所有文件/命令限制在此） | 当前目录 |
-| `commandTimeoutMs` | 命令执行超时（毫秒） | 30000 |
-| `readFileMaxLines` | `read_file` 默认读取行数上限 | 2000 |
-| `commandOutputMaxBytes` | `run_command` 输出字节预算 | 30720 |
-| `maxIterations` | 主循环最大迭代次数 | 25 |
+| `WORKDIR` | agent 可操作的目录（所有文件/命令限制在此） | 当前目录 |
+| `COMMAND_TIMEOUT_MS` | 命令执行超时（毫秒） | 30000 |
+| `READ_FILE_MAX_LINES` | `read_file` 默认读取行数上限 | 2000 |
+| `COMMAND_OUTPUT_MAX_BYTES` | `run_command` 输出字节预算 | 30720 |
+| `MAX_ITERATIONS` | 单轮提交内 agent 执行次数的绝对上限（硬兜底） | 100 |
+| `MAX_REPEATED_ACTIONS` | 死循环检测阈值：连续重复同一动作达此次数即停止 | 4 |
 
 ## 运行
 
@@ -136,21 +137,17 @@ WORKDIR=./examples pnpm start
 - **资源限制**（POSIX）：按配置注入 `ulimit`（进程数 `-u` / CPU 时间 `-t` / 内存 `-v`），
   缺省不限制；`-u` 为 per-user 语义。
 
-**配置**（`config.json` 的 `sandbox` 段或环境变量）：
+**配置**（环境变量；结构化字段用逗号分隔列表 / 独立整数变量表达）：
 
-```jsonc
-{
-  "sandbox": {
-    "backend": "auto",          // auto | none | seatbelt | bwrap | jobobject
-    "allowNetwork": true,        // 默认放行：npm install 等需联网；设 false 切断网络
-    "writablePaths": [],         // 在 cwd + tmp + 包管理器缓存之外额外可写的绝对路径
-    "limits": { "maxProcesses": 512, "cpuTimeSeconds": 60 },
-    "envPassthrough": []         // 在默认白名单之外额外透传的环境变量名
-  }
-}
+```bash
+SANDBOX_BACKEND=auto                 # auto | none | seatbelt | bwrap | jobobject
+SANDBOX_ALLOW_NETWORK=true           # 默认放行：npm install 等需联网；设 false 切断网络
+SANDBOX_WRITABLE_PATHS=/a,/b         # cwd + tmp + 包管理器缓存之外额外可写的绝对路径（逗号分隔）
+SANDBOX_ENV_PASSTHROUGH=FOO,BAR      # 默认白名单之外额外透传给子进程的环境变量名（逗号分隔）
+SANDBOX_MAX_PROCESSES=512            # 资源上限，缺省即不限制
+SANDBOX_CPU_TIME_SECONDS=60
+SANDBOX_MAX_MEMORY_BYTES=1073741824
 ```
-
-环境变量：`SANDBOX_BACKEND`、`SANDBOX_ALLOW_NETWORK`。
 
 > **网络默认放行的权衡**：代码 agent 常需 `npm install` / 拉依赖，故 `allowNetwork` 默认 `true`。
 > 若要在其中跑不可信代码，建议设为 `false` 切断网络，并配合 `seatbelt`/`bwrap` 后端。
@@ -174,28 +171,27 @@ WORKDIR=./examples pnpm start
 多轮工具调用很费 token，本项目内置几项可选优化：
 
 - **收紧系统提示**：指示模型不复述工具返回内容、不写大段解说、只给一句话级结论，减少**输出** token。
-- **prompt caching**（`promptCaching`，默认关）：给系统提示加 `cache_control`，让 Anthropic 缓存
+- **prompt caching**（`PROMPT_CACHING`，默认关）：给系统提示加 `cache_control`，让 Anthropic 缓存
   「tools + system」这段稳定前缀，多轮命中缓存可显著省**输入** token。需 LLM 端点（官方或兼容网关，
   如 LiteLLM）支持 `cache_control`，不支持则被忽略、不报错；可在响应 `usage` 的
   `cache_read_input_tokens` / `cache_creation_input_tokens` 确认是否命中。
-- **历史工具结果压缩**（`historyToolResultMaxBytes`，默认 8192，0=关）：重发给模型时把超预算的旧工具
+- **历史工具结果压缩**（`HISTORY_TOOL_RESULT_MAX_BYTES`，默认 8192，0=关）：重发给模型时把超预算的旧工具
   结果做头尾截断（产生当轮仍完整可见），削减多轮重发的输入 token。
-- **对话历史自动压缩**（`historyCompactionMaxBytes`，默认 61440，0=关）：跨轮历史超过阈值时，提交前用
+- **对话历史自动压缩**（`HISTORY_COMPACTION_MAX_BYTES`，默认 61440，0=关）：跨轮历史超过阈值时，提交前用
   LLM 把较旧历史摘要成精简上下文、保留最近若干轮，避免长会话撑爆 context window；压缩失败回退原历史。
-- **工具输出预算可调**：`commandOutputMaxBytes` / `readFileMaxLines` 可调小。
+- **工具输出预算可调**：`COMMAND_OUTPUT_MAX_BYTES` / `READ_FILE_MAX_LINES` 可调小。
 
 > 概念澄清：①工具结果是**下一轮的输入 token**（非模型输出）；②工具调用参数是模型必需的输出，省不掉；
 > ③模型每步的解说 prose 才是可省的输出 token；④多轮里重发全部历史是输入 token 大头，prompt caching
 > 杠杆最大。**注意**：UI 里的展示裁剪（`clampCount`）**仅影响终端显示，不会减少发给模型的 token**——
 > 两者是不同的东西。
 
-配置（`config.json` 或环境变量 `PROMPT_CACHING` / `HISTORY_TOOL_RESULT_MAX_BYTES`）：
+配置（环境变量）：
 
-```jsonc
-{
-  "promptCaching": false,
-  "historyToolResultMaxBytes": 8192
-}
+```bash
+PROMPT_CACHING=false
+HISTORY_TOOL_RESULT_MAX_BYTES=8192
+HISTORY_COMPACTION_MAX_BYTES=61440
 ```
 
 ## 可选：Langfuse 监控
