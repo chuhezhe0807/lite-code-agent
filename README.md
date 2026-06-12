@@ -11,9 +11,9 @@
 
 ## 截图
 
-![终端执行截图 1](assets/screen01.jpg)
+![终端执行截图 1](assets/screen01.png)
 
-![终端执行截图 2](assets/screen02.jpg)
+![终端执行截图 2](assets/screen02.png)
 
 ![终端执行截图 3](assets/screen03.png)
 
