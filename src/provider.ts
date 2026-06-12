@@ -5,11 +5,12 @@
  * Agent 主循环只依赖统一的 BaseChatModel 接口，不关心底层是哪家厂商，
  * 这样未来新增 OpenAI / Ollama 只需在这里扩展一个分支，主循环代码无需改动。
  *
- * 当前已实现：anthropic（默认）。
- * openai / ollama 留有扩展点，但尚未实现（命中时抛出明确错误）。
+ * 当前已实现：anthropic（默认）、openai、ollama。
  */
 
 import { ChatAnthropic } from "@langchain/anthropic";
+import { ChatOpenAI } from "@langchain/openai";
+import { ChatOllama } from "@langchain/ollama";
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
 import type { AppConfig, ProviderConfig } from "./config.js";
 
@@ -47,6 +48,35 @@ function createAnthropic(p: ProviderConfig): BaseChatModel {
 }
 
 /**
+ * 创建 OpenAI（或 OpenAI 兼容网关，如 LiteLLM/vLLM）模型实例。
+ * - apiKey / authToken 都以 `Authorization: Bearer` 发送，二者等价，取其一即可；
+ * - baseURL 可选，指向兼容网关；缺省走 OpenAI 官方地址；
+ * - maxTokens 给一个合理默认值，模型可在其上下文内自由生成。
+ */
+function createOpenAI(p: ProviderConfig): BaseChatModel {
+  const credential = p.apiKey || p.authToken || "";
+  return new ChatOpenAI({
+    apiKey: credential,
+    model: p.model,
+    maxTokens: 4096,
+    // 仅在配置了 baseURL 时才传，避免覆盖默认官方地址
+    ...(p.baseURL ? { configuration: { baseURL: p.baseURL } } : {}),
+  }) as unknown as BaseChatModel;
+}
+
+/**
+ * 创建 Ollama（本地模型服务）实例。
+ * - 无需鉴权；baseURL 指向 Ollama 服务，缺省 http://localhost:11434；
+ * - 工具调用需所选模型本身支持 function calling（如 llama3.1、qwen2.5 等）。
+ */
+function createOllama(p: ProviderConfig): BaseChatModel {
+  return new ChatOllama({
+    model: p.model,
+    baseUrl: p.baseURL || "http://localhost:11434",
+  }) as unknown as BaseChatModel;
+}
+
+/**
  * Provider 工厂：根据配置返回对应的 ChatModel。
  *
  * @param config 应用配置
@@ -59,15 +89,9 @@ export function createChatModel(config: AppConfig): BaseChatModel {
     case "anthropic":
       return createAnthropic(provider);
     case "openai":
-      // 扩展点：后续接入 @langchain/openai 的 ChatOpenAI
-      throw new Error(
-        "provider 'openai' 暂未实现。当前仅支持 anthropic，请修改配置。",
-      );
+      return createOpenAI(provider);
     case "ollama":
-      // 扩展点：后续接入 @langchain/ollama 的 ChatOllama
-      throw new Error(
-        "provider 'ollama' 暂未实现。当前仅支持 anthropic，请修改配置。",
-      );
+      return createOllama(provider);
     default: {
       // 穷尽性检查：新增 ProviderType 而忘记处理时，编译期即可发现
       const exhaustive: never = provider.type;

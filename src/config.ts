@@ -253,15 +253,19 @@ export function isLangfuseEnabled(lf: LangfuseConfig | undefined): boolean {
  * 当前仅 anthropic provider 已实现，且必须提供 apiKey。
  */
 function validateConfig(config: AppConfig): void {
-  if (
-    config.provider.type === "anthropic" &&
-    !config.provider.apiKey &&
-    !config.provider.authToken
-  ) {
+  const { type, apiKey, authToken } = config.provider;
+  const hasCredential = Boolean(apiKey || authToken);
+  if (type === "anthropic" && !hasCredential) {
     throw new Error(
       "缺少 Anthropic 凭证。请在 .env 中设置 ANTHROPIC_API_KEY（x-api-key 方式）或 ANTHROPIC_AUTH_TOKEN（Bearer 方式，常用于代理/网关）。",
     );
   }
+  if (type === "openai" && !hasCredential) {
+    throw new Error(
+      "缺少 OpenAI 凭证。请在 .env 中设置 ANTHROPIC_API_KEY/LLM_API_KEY 或 ANTHROPIC_LLM_AUTH_TOKEN/LLM_AUTH_TOKEN（均以 Bearer 发送）。",
+    );
+  }
+  // ollama 为本地服务，无需鉴权，不校验凭证
 }
 
 /**
