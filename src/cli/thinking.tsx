@@ -13,6 +13,12 @@ import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 
+/** 已用时展示：不足 1 分钟用「Ns」，超过则用「Xm Ys」。 */
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 export function ThinkingIndicator(): React.ReactElement {
   const [seconds, setSeconds] = useState(0);
 
@@ -32,7 +38,7 @@ export function ThinkingIndicator(): React.ReactElement {
       </Text>
       <Text color="yellow">
         {" "}
-        思考中…（{seconds}s）{"  "}
+        思考中…（{formatElapsed(seconds)}）{"  "}
       </Text>
       <Text color="gray">按 Esc 中断</Text>
     </Box>
