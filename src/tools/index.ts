@@ -16,6 +16,7 @@ import { createWriteFileTool } from "./writeFile.js";
 import { createEditFileTool } from "./editFile.js";
 import { createRunCommandTool } from "./runCommand.js";
 import { createUpdateTodosTool } from "./updateTodos.js";
+import { createValidateFileTool } from "./validateFile.js";
 
 export type { ToolSpec, ToolLevel } from "./types.js";
 export type { Todo, TodoStatus } from "./updateTodos.js";
@@ -37,6 +38,7 @@ export function createTools(
     createGlobTool(config),
     createWriteFileTool(config),
     createEditFileTool(config),
+    createValidateFileTool(config, backend),
     createRunCommandTool(config, backend),
     createUpdateTodosTool(),
   ];
