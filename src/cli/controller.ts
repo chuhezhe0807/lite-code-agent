@@ -31,6 +31,7 @@ import {
   planCompaction,
   applyCompaction,
   renderTranscript,
+  repairToolPairs,
   SUMMARY_SYSTEM_PROMPT,
 } from "../agent/compaction.js";
 import { SystemMessage } from "@langchain/core/messages";
@@ -164,6 +165,7 @@ export class SessionController extends EventEmitter implements AuthPrompter {
       tools: deps.tools,
       manager,
       maxIterations: this.maxIterations,
+      maxRepeatedActions: deps.config.maxRepeatedActions,
       promptCaching: deps.config.promptCaching,
     });
     // 可选监控：配置齐全才创建，否则 undefined（不影响运行）
@@ -216,9 +218,13 @@ export class SessionController extends EventEmitter implements AuthPrompter {
 
     const human = new HumanMessage(text);
     // 重发给模型前压缩历史里的大块旧工具结果，降低多轮输入 token（不改动 this.history）
-    const inputMessages = compactToolResults(
-      [...this.history, human],
-      this.historyToolResultMaxBytes,
+    // 再做一道配对兜底：修复历史里可能存在的悬空 tool_use / 孤儿 tool_result
+    // （如 maxIterations 截断遗留、压缩边界、中断续接），避免请求被 Anthropic 以 400 拒绝。
+    const inputMessages = repairToolPairs(
+      compactToolResults(
+        [...this.history, human],
+        this.historyToolResultMaxBytes,
+      ),
     );
     const collected: BaseMessage[] = [human];
 
@@ -227,7 +233,8 @@ export class SessionController extends EventEmitter implements AuthPrompter {
         { messages: inputMessages },
         {
           streamMode: "updates",
-          // 留足递归预算：每轮 agent+tools 两步
+          // 留足递归预算：每轮 agent+tools 两步，需覆盖 maxIterations 个绝对上限轮次。
+          // 死循环由图内 maxRepeatedActions 提前拦截；此处只是 LangGraph 的最终安全阀。
           recursionLimit: this.maxIterations * 2 + 5,
           signal: abort.signal,
           // 配置了 Langfuse 才挂回调，把本轮链路上报

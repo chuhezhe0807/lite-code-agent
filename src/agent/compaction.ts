@@ -114,6 +114,61 @@ export function applyCompaction(
 }
 
 /**
+ * 发送前的最后一道兜底：修复 tool_use / tool_result 的配对，确保满足 Anthropic 约束
+ * 「每条带 tool_calls 的消息后必须紧跟覆盖全部 call 的 tool_result」。
+ *
+ * 为什么需要：死循环保护触发时，shouldContinue 会停在「带 tool_calls 的 AI」之后，
+ * 该 AI 的工具从未执行，却被正常结束分支原样写进 history，留下「悬空 tool_use」；
+ * 下一轮再追加新的 Human，就会出现「tool_use 后紧跟 Human 而非 tool_result」→ 400。
+ * 此外压缩保留段理论上以 Human 开头，但任何上游改动都可能打破该前提。
+ * 中断续接路径由 sanitizeForResume 单独处理（悬空在尾部，追加占位即满足配对），这里不重复。
+ *
+ * 规则：
+ *   1. 每条带 tool_calls 的 AI 消息，未被其后紧邻 tool_result 覆盖的 call，就在它
+ *      「正后面」补一条占位 tool_result；
+ *   2. 丢弃没有前驱 tool_use 的孤儿 tool_result。
+ *
+ * @returns 修复后的新数组（不改动入参）
+ */
+export function repairToolPairs(messages: BaseMessage[]): BaseMessage[] {
+  const out: BaseMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    // 走到这里的 ToolMessage 必是孤儿：正常配对的会在下方内层循环被消费掉
+    if (m instanceof ToolMessage) continue;
+
+    out.push(m);
+    const calls = (m as AIMessage).tool_calls;
+    if (!Array.isArray(calls) || calls.length === 0) continue;
+
+    // 收集紧随其后的连续 ToolMessage，记录已解决的 call id
+    const resolved = new Set<string>();
+    let j = i + 1;
+    while (j < messages.length && messages[j] instanceof ToolMessage) {
+      const tm = messages[j] as ToolMessage;
+      out.push(tm);
+      if (typeof tm.tool_call_id === "string") resolved.add(tm.tool_call_id);
+      j++;
+    }
+    // 为未解决的 call 在「紧跟该 AI 之后」补占位结果，避免悬空 tool_use 触发 400
+    for (const call of calls) {
+      if (call.id && !resolved.has(call.id)) {
+        out.push(
+          new ToolMessage({
+            content:
+              "[该工具调用未产生结果（可能因达到迭代上限或被中断而未执行），可忽略或按需重新发起]",
+            tool_call_id: call.id,
+            name: call.name,
+          }),
+        );
+      }
+    }
+    i = j - 1; // 跳过已消费的 ToolMessage
+  }
+  return out;
+}
+
+/**
  * 把待摘要的旧消息转写成纯文本 transcript，供摘要提示使用。
  * 标注角色，工具调用与结果各占一行，便于模型理解上下文脉络。
  */

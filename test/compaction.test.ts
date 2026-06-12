@@ -10,6 +10,7 @@ import {
   planCompaction,
   applyCompaction,
   renderTranscript,
+  repairToolPairs,
 } from "../src/agent/compaction.js";
 
 const big = (n: number) => "x".repeat(n);
@@ -102,5 +103,69 @@ describe("renderTranscript", () => {
     expect(t).toContain("助手：思考");
     expect(t).toContain("调用工具 read_file");
     expect(t).toContain("工具结果·read_file：内容");
+  });
+});
+
+describe("repairToolPairs", () => {
+  const aiCall = (id: string, name = "edit_file") =>
+    new AIMessage({ content: "改一下", tool_calls: [{ name, args: {}, id }] });
+
+  it("强制停止遗留的悬空 tool_use 后跟 Human：在 AI 正后面补占位 tool_result", () => {
+    const msgs = [
+      new HumanMessage("q0"),
+      aiCall("toolu_1"), // 悬空：工具未执行
+      new HumanMessage("继续"),
+    ];
+    const fixed = repairToolPairs(msgs);
+    // 顺序应为 Human, AI(tool_use), ToolMessage(占位), Human
+    expect(fixed).toHaveLength(4);
+    expect(fixed[2]).toBeInstanceOf(ToolMessage);
+    expect((fixed[2] as ToolMessage).tool_call_id).toBe("toolu_1");
+    expect(fixed[3]).toBeInstanceOf(HumanMessage);
+  });
+
+  it("已正确配对的序列保持不变", () => {
+    const msgs = [
+      new HumanMessage("q"),
+      aiCall("c1"),
+      new ToolMessage({ content: "ok", tool_call_id: "c1", name: "edit_file" }),
+      new AIMessage("done"),
+    ];
+    const fixed = repairToolPairs(msgs);
+    expect(fixed).toHaveLength(4);
+    expect(fixed).toEqual(msgs);
+  });
+
+  it("丢弃没有前驱 tool_use 的孤儿 tool_result", () => {
+    const msgs = [
+      new ToolMessage({ content: "孤儿", tool_call_id: "x", name: "read_file" }),
+      new HumanMessage("hi"),
+    ];
+    const fixed = repairToolPairs(msgs);
+    expect(fixed).toHaveLength(1);
+    expect(fixed[0]).toBeInstanceOf(HumanMessage);
+  });
+
+  it("一条 AI 多个 call 只补未解决的那个", () => {
+    const ai = new AIMessage({
+      content: "",
+      tool_calls: [
+        { name: "edit_file", args: {}, id: "a" },
+        { name: "read_file", args: {}, id: "b" },
+      ],
+    });
+    const msgs = [
+      new HumanMessage("q"),
+      ai,
+      new ToolMessage({ content: "a 的结果", tool_call_id: "a", name: "edit_file" }),
+      new HumanMessage("next"),
+    ];
+    const fixed = repairToolPairs(msgs);
+    // a 已有结果保留，b 补占位；二者都在 AI 正后面、Human 之前
+    const ids = fixed
+      .filter((m): m is ToolMessage => m instanceof ToolMessage)
+      .map((m) => m.tool_call_id);
+    expect(ids).toEqual(["a", "b"]);
+    expect(fixed[fixed.length - 1]).toBeInstanceOf(HumanMessage);
   });
 });

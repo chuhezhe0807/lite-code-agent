@@ -1,15 +1,13 @@
 /**
  * 配置加载模块
  *
- * 职责：把「命令行运行时所需的所有配置」从两处来源合并成一个强类型对象：
- *   1. 工作目录下的 config.json（可选，结构化配置）
- *   2. 环境变量 / .env 文件（敏感信息如 apiKey 优先放这里）
+ * 职责：把「命令行运行时所需的所有配置」从环境变量 / .env 文件合并成一个强类型对象。
  *
- * 合并优先级：环境变量 > config.json > 内置默认值。
- * 这样 apiKey 之类的密钥可以只放在 .env 里，不必写进会被提交的 config.json。
+ * 单一来源：所有配置只来自环境变量（启动时由 dotenv 从 .env 载入），缺失则回落到内置默认值。
+ * 见 .env.example 获取完整变量清单。结构化字段（如沙箱白名单）用逗号分隔的列表表达。
  */
 
-import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { resolve, join } from "node:path";
 import dotenv from "dotenv";
 import type { ResourceLimits, SandboxBackendName } from "./sandbox/types.js";
@@ -74,8 +72,16 @@ export interface AppConfig {
   readFileMaxLines: number;
   /** run_command 输出的字节预算，默认 30KB */
   commandOutputMaxBytes: number;
-  /** Agent 主循环最大迭代次数，防止无限工具调用，默认 25 */
+  /**
+   * Agent 主循环单轮提交内的「绝对轮数上限」（agent 节点执行次数），默认 100。
+   * 仅作防御性硬兜底，正常长任务通常不会触达；真正的死循环由 maxRepeatedActions 提前拦截。
+   */
   maxIterations: number;
+  /**
+   * 死循环检测阈值，默认 4：当 agent「连续重复同一动作（tool_calls 的 name+args 签名）」
+   * 达到该次数时判定为死循环并停止。签名一旦变化即清零，故正常推进的任务不受影响。
+   */
+  maxRepeatedActions: number;
   /**
    * 是否启用 Anthropic prompt caching（US-015，默认 false）。
    * 启用时给系统提示加 cache_control，缓存「tools + system」稳定前缀以省输入 token；
@@ -100,21 +106,6 @@ export interface AppConfig {
   langfuse?: LangfuseConfig;
 }
 
-/** config.json 的结构（所有字段均可选，缺失时回落到默认值或环境变量） */
-interface RawConfigFile {
-  provider?: Partial<ProviderConfig>;
-  workdir?: string;
-  commandTimeoutMs?: number;
-  readFileMaxLines?: number;
-  commandOutputMaxBytes?: number;
-  maxIterations?: number;
-  promptCaching?: boolean;
-  historyToolResultMaxBytes?: number;
-  historyCompactionMaxBytes?: number;
-  sandbox?: Partial<SandboxConfig>;
-  langfuse?: LangfuseConfig;
-}
-
 /** 内置默认值 */
 const DEFAULTS = {
   providerType: "anthropic" as ProviderType,
@@ -122,7 +113,8 @@ const DEFAULTS = {
   commandTimeoutMs: 30_000,
   readFileMaxLines: 2000,
   commandOutputMaxBytes: 30 * 1024,
-  maxIterations: 25,
+  maxIterations: 100,
+  maxRepeatedActions: 4,
   promptCaching: false,
   historyToolResultMaxBytes: 8192,
   historyCompactionMaxBytes: 60 * 1024,
@@ -131,103 +123,76 @@ const DEFAULTS = {
 };
 
 /**
- * 读取 config.json（若存在）。文件不存在时返回空对象，不报错。
- * @param cwd 当前工作目录
- */
-function readConfigFile(cwd: string): RawConfigFile {
-  const configPath = join(cwd, "config.json");
-  if (!existsSync(configPath)) {
-    return {};
-  }
-  try {
-    const text = readFileSync(configPath, "utf-8");
-    return JSON.parse(text) as RawConfigFile;
-  } catch (err) {
-    throw new Error(
-      `解析 config.json 失败（${configPath}）：${(err as Error).message}`,
-    );
-  }
-}
-
-/**
- * 加载并校验完整配置。
+ * 加载并校验完整配置（单一来源：环境变量 / .env，缺失回落到默认值）。
  *
  * @param cwd 进程当前工作目录，默认 process.cwd()
- * @returns 合并后的强类型配置对象
- * @throws 当缺少必需的 apiKey 时抛出明确错误
+ * @returns 强类型配置对象
+ * @throws 当缺少必需的 apiKey/authToken 时抛出明确错误
  */
 export function loadConfig(cwd: string = process.cwd()): AppConfig {
-  const file = readConfigFile(cwd);
+  const env = process.env;
 
-  // provider 类型：环境变量 > config.json > 默认 anthropic
-  const providerType = (process.env.PROVIDER_TYPE ??
-    file.provider?.type ??
+  const providerType = (env.PROVIDER_TYPE ??
     DEFAULTS.providerType) as ProviderType;
 
-  // apiKey：优先环境变量（不同 provider 用各自惯用的环境变量名）
-  const apiKey =
-    process.env.ANTHROPIC_API_KEY ??
-    process.env.LLM_API_KEY ??
-    file.provider?.apiKey ??
-    "";
-
+  // apiKey / authToken / baseURL / model：兼容 ANTHROPIC_* 与通用 LLM_* 两套变量名
+  const apiKey = env.ANTHROPIC_API_KEY ?? env.LLM_API_KEY ?? "";
   // authToken：Bearer 鉴权，常用于代理/网关（Claude Code 用 ANTHROPIC_AUTH_TOKEN）
-  const authToken =
-    process.env.ANTHROPIC_LLM_AUTH_TOKEN ??
-    process.env.LLM_AUTH_TOKEN ??
-    file.provider?.authToken;
+  const authToken = env.ANTHROPIC_LLM_AUTH_TOKEN ?? env.LLM_AUTH_TOKEN;
+  const baseURL = env.ANTHROPIC_BASE_URL ?? env.LLM_BASE_URL;
+  const model = env.LLM_MODEL ?? DEFAULTS.model;
 
-  const baseURL =
-    process.env.ANTHROPIC_BASE_URL ??
-    process.env.LLM_BASE_URL ??
-    file.provider?.baseURL;
+  // 工作目录：环境变量 > 当前目录；统一转为绝对路径
+  const workdir = resolve(env.WORKDIR ?? cwd);
 
-  const model =
-    process.env.LLM_MODEL ?? file.provider?.model ?? DEFAULTS.model;
-
-  // 工作目录：环境变量 > config.json > 当前目录；统一转为绝对路径
-  const workdir = resolve(
-    process.env.WORKDIR ?? file.workdir ?? cwd,
-  );
-
-  // 沙箱配置：环境变量 > config.json > 默认
+  // 沙箱配置：结构化字段用逗号分隔列表 / 独立整数变量表达
   const sandbox: SandboxConfig = {
-    backend: (process.env.SANDBOX_BACKEND ??
-      file.sandbox?.backend ??
+    backend: (env.SANDBOX_BACKEND ??
       DEFAULTS.sandboxBackend) as SandboxBackendChoice,
     allowNetwork: parseBool(
-      process.env.SANDBOX_ALLOW_NETWORK,
-      file.sandbox?.allowNetwork ?? DEFAULTS.sandboxAllowNetwork,
+      env.SANDBOX_ALLOW_NETWORK,
+      DEFAULTS.sandboxAllowNetwork,
     ),
-    writablePaths: file.sandbox?.writablePaths ?? [],
-    limits: file.sandbox?.limits ?? {},
-    envPassthrough: file.sandbox?.envPassthrough ?? [],
+    writablePaths: parseList(env.SANDBOX_WRITABLE_PATHS),
+    limits: parseLimits(env),
+    envPassthrough: parseList(env.SANDBOX_ENV_PASSTHROUGH),
   };
 
-  // Langfuse 配置：三个字段任意来源，缺失则后续判定为关闭
+  // Langfuse 配置：缺失则后续判定为关闭
   const langfuse: LangfuseConfig = {
-    publicKey: process.env.LANGFUSE_PUBLIC_KEY ?? file.langfuse?.publicKey,
-    secretKey: process.env.LANGFUSE_SECRET_KEY ?? file.langfuse?.secretKey,
-    baseURL: process.env.LANGFUSE_BASE_URL ?? file.langfuse?.baseURL,
+    publicKey: env.LANGFUSE_PUBLIC_KEY,
+    secretKey: env.LANGFUSE_SECRET_KEY,
+    baseURL: env.LANGFUSE_BASE_URL,
   };
 
   const config: AppConfig = {
     provider: { type: providerType, apiKey, authToken, baseURL, model },
     workdir,
-    commandTimeoutMs: file.commandTimeoutMs ?? DEFAULTS.commandTimeoutMs,
-    readFileMaxLines: file.readFileMaxLines ?? DEFAULTS.readFileMaxLines,
-    commandOutputMaxBytes:
-      file.commandOutputMaxBytes ?? DEFAULTS.commandOutputMaxBytes,
-    maxIterations: file.maxIterations ?? DEFAULTS.maxIterations,
-    promptCaching: parseBool(
-      process.env.PROMPT_CACHING,
-      file.promptCaching ?? DEFAULTS.promptCaching,
+    commandTimeoutMs: parseIntEnv(
+      env.COMMAND_TIMEOUT_MS,
+      DEFAULTS.commandTimeoutMs,
     ),
-    historyToolResultMaxBytes:
-      file.historyToolResultMaxBytes ?? DEFAULTS.historyToolResultMaxBytes,
+    readFileMaxLines: parseIntEnv(
+      env.READ_FILE_MAX_LINES,
+      DEFAULTS.readFileMaxLines,
+    ),
+    commandOutputMaxBytes: parseIntEnv(
+      env.COMMAND_OUTPUT_MAX_BYTES,
+      DEFAULTS.commandOutputMaxBytes,
+    ),
+    maxIterations: parseIntEnv(env.MAX_ITERATIONS, DEFAULTS.maxIterations),
+    maxRepeatedActions: parseIntEnv(
+      env.MAX_REPEATED_ACTIONS,
+      DEFAULTS.maxRepeatedActions,
+    ),
+    promptCaching: parseBool(env.PROMPT_CACHING, DEFAULTS.promptCaching),
+    historyToolResultMaxBytes: parseIntEnv(
+      env.HISTORY_TOOL_RESULT_MAX_BYTES,
+      DEFAULTS.historyToolResultMaxBytes,
+    ),
     historyCompactionMaxBytes: parseIntEnv(
-      process.env.HISTORY_COMPACTION_MAX_BYTES,
-      file.historyCompactionMaxBytes ?? DEFAULTS.historyCompactionMaxBytes,
+      env.HISTORY_COMPACTION_MAX_BYTES,
+      DEFAULTS.historyCompactionMaxBytes,
     ),
     sandbox,
     langfuse: isLangfuseEnabled(langfuse) ? langfuse : undefined,
@@ -235,6 +200,15 @@ export function loadConfig(cwd: string = process.cwd()): AppConfig {
 
   validateConfig(config);
   return config;
+}
+
+/** 从 SANDBOX_* 整数变量解析资源上限；未设置的字段保持 undefined（即不限制）。 */
+function parseLimits(env: NodeJS.ProcessEnv): ResourceLimits {
+  return {
+    maxProcesses: parseOptIntEnv(env.SANDBOX_MAX_PROCESSES),
+    maxMemoryBytes: parseOptIntEnv(env.SANDBOX_MAX_MEMORY_BYTES),
+    cpuTimeSeconds: parseOptIntEnv(env.SANDBOX_CPU_TIME_SECONDS),
+  };
 }
 
 /** 解析布尔型环境变量；未设置时回落到 fallback。接受 1/true/yes/on（不区分大小写）为真。 */
@@ -251,6 +225,22 @@ function parseIntEnv(raw: string | undefined, fallback: number): number {
   if (raw === undefined) return fallback;
   const n = Number.parseInt(raw.trim(), 10);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** 解析可选整数型环境变量；未设置或非法时返回 undefined（用于「缺省即不限制」的字段）。 */
+function parseOptIntEnv(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const n = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** 解析逗号分隔的列表型环境变量；未设置或全为空白时返回空数组。 */
+function parseList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /** 判断 Langfuse 是否配置齐全（publicKey + secretKey 必须都有才算启用） */
