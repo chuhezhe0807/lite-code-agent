@@ -15,6 +15,8 @@
 
 ![终端执行截图 2](assets/screen02.jpg)
 
+![终端执行截图 3](assets/screen03.png)
+
 ## 特性
 
 - 🔁 **LangGraph 主循环**：`StateGraph` 编排「思考 → 调用工具 → 观察 → 继续」的 ReAct 循环。
