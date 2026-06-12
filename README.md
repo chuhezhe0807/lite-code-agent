@@ -9,14 +9,22 @@
 > `child_process`，但**仍不等同于容器/VM 级强隔离**，不保证完全对抗恶意代码。缺少原生机制的
 > 平台会自动降级为 `child_process` + 白名单 + 超时。详见下方「沙箱隔离」。
 
+## 截图
+
+![终端执行截图 1](assets/screen01.jpg)
+
+![终端执行截图 2](assets/screen02.jpg)
+
 ## 特性
 
 - 🔁 **LangGraph 主循环**：`StateGraph` 编排「思考 → 调用工具 → 观察 → 继续」的 ReAct 循环。
-- 🧰 **工具集**：`read_file`（分页）、`list_dir`、`write_file`、`edit_file`（diff 局部编辑）、
-  `run_command`（沙箱执行）、`update_todos`（任务清单）。
+- 🧰 **工具集**：`read_file`（分页）、`list_dir`、`grep`/`glob`（只读搜索）、`write_file`、
+  `edit_file`（diff 局部编辑）、`validate_file`（多语言编译/语法校验）、`run_command`（沙箱执行）、
+  `update_todos`（任务清单）。
 - 🔐 **分级授权 + 持久化**：read 免询问；write/execute 需授权；规则按 `工具名(参数模式)` 匹配，
   支持「始终允许/拒绝」并写入 `.litecode/settings.local.json`（参考 Claude Code）。
-- 🖥️ **Ink 终端 UI**：块状渲染、思考动画、todo 实时勾选、方向键选择授权、`Esc` 中断。
+- 🖥️ **Ink 终端 UI**：回复按 Markdown 渲染富文本、块状渲染（已完成内容沉淀进终端 scrollback）、
+  思考动画、todo 实时勾选（最多 3 条）、方向键选择授权、中文输入法光标跟随、`Esc` 中断。
 - 🧱 **受限沙箱**：命令锁定工作目录、超时强杀、可被 `Esc` 中断（`AbortSignal` 贯穿）。
 - 🔌 **可切换 Provider**：默认 Anthropic（支持 `apiKey` / `authToken` Bearer / `baseURL` / `model`），
   预留 OpenAI / Ollama 扩展点。
@@ -24,7 +32,7 @@
 
 ## 安装
 
-需要 Node ≥ 18。
+需要 Node ≥ 22（Ink 7 要求）。
 
 ```bash
 pnpm install
@@ -83,7 +91,7 @@ WORKDIR=./examples pnpm start
                                               └───────────────┬───────────────────┘
                                                               │ 执行前授权拦截
                                           ┌───────────────────┼───────────────────┐
-                                          │ PermissionManager  │  5+1 个工具        │
+                                          │ PermissionManager  │  9 个工具          │
                                           │ (allow/deny 匹配)   │  read/write/exec   │
                                           └────────┬───────────┴─────────┬──────────┘
                                           .litecode/settings.local.json   沙箱 (child_process)
@@ -151,8 +159,11 @@ WORKDIR=./examples pnpm start
 |---|---|---|
 | `read_file(path, offset?, limit?)` | read | 读取文件，分页，截断标注剩余 |
 | `list_dir(path?)` | read | 列目录，目录排前，超量截断 |
+| `grep(pattern, path?, ...)` | read | 按正则搜索文件内容 |
+| `glob(pattern, path?)` | read | 按文件名模式查找文件 |
 | `write_file(path, content)` | write | 创建/覆盖文件，授权前展示摘要 |
 | `edit_file(path, old, new)` | write | 精确替换（`old` 须唯一），授权前展示 diff |
+| `validate_file(path)` | read | 按扩展名校验编译/语法错误（TS/JS/Python/Ruby/Go/Java/Shell/JSON/YAML），缺校验器自动跳过 |
 | `run_command(command)` | execute | 沙箱执行，超时/中断保护，头尾截断输出 |
 | `update_todos(todos)` | read | 维护任务清单，UI 实时 ○/◐/✓ |
 
@@ -167,6 +178,8 @@ WORKDIR=./examples pnpm start
   `cache_read_input_tokens` / `cache_creation_input_tokens` 确认是否命中。
 - **历史工具结果压缩**（`historyToolResultMaxBytes`，默认 8192，0=关）：重发给模型时把超预算的旧工具
   结果做头尾截断（产生当轮仍完整可见），削减多轮重发的输入 token。
+- **对话历史自动压缩**（`historyCompactionMaxBytes`，默认 61440，0=关）：跨轮历史超过阈值时，提交前用
+  LLM 把较旧历史摘要成精简上下文、保留最近若干轮，避免长会话撑爆 context window；压缩失败回退原历史。
 - **工具输出预算可调**：`commandOutputMaxBytes` / `readFileMaxLines` 可调小。
 
 > 概念澄清：①工具结果是**下一轮的输入 token**（非模型输出）；②工具调用参数是模型必需的输出，省不掉；
@@ -209,14 +222,15 @@ src/
   index.ts              入口：装配配置/模型/工具/控制器并启动 CLI
   config.ts             配置加载与校验
   provider.ts           LLM provider 工厂（默认 Anthropic）
-  agent/graph.ts        LangGraph 主循环（agent/tools 节点 + 状态）
-  tools/                read_file / list_dir / write_file / edit_file / run_command / update_todos
+  agent/                LangGraph 主循环（graph：agent/tools 节点 + 状态）/ 历史压缩（compaction）
+  tools/                read_file / list_dir / grep / glob / write_file / edit_file / validate_file / run_command / update_todos
   permissions/          授权：settings 读写 / 规则匹配 / prompter / manager
   sandbox/              沙箱：types / detect（后端选择）/ policy / exec / backends（seatbelt·bwrap·windows·none）
   security/path.ts      工作目录路径白名单校验
-  util/                 diff 格式化 / 输出头尾截断
+  util/                 diff 格式化 / 输出头尾截断 / glob 匹配
   observability/langfuse.ts  可选 Langfuse 回调
-  cli/                  Ink UI：app / controller / thinking / types
+  cli/                  Ink UI：app / controller / thinking / types / 输入框（promptInput·promptBuffer）/
+                        历史（history）/ 任务清单摘要（todoSummary）/ Markdown 渲染（markdown）
 examples/               示例工作目录（练手）
 docker-compose.yml      本地自托管 Langfuse
 ```

@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "轻量级 code agent，使用 LangGraph + TypeScript 实现，用于学习 Agent 应用开发",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "tsx src/index.ts",
     "dev": "tsx watch src/index.ts",
