@@ -24,12 +24,15 @@
     "ink": "^7.0.5",
     "ink-spinner": "^5.0.0",
     "langfuse-langchain": "^3.38.20",
+    "marked": "^15.0.12",
+    "marked-terminal": "^7.3.0",
     "react": "^19.2.0",
     "string-width": "^8.2.0",
     "yaml": "^2.9.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@types/marked-terminal": "^6.1.1",
     "@types/node": "^22.0.0",
     "@types/react": "^19.2.0",
     "tsx": "^4.19.0",

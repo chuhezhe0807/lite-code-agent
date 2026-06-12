@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Box, Text, Static, useApp, useInput, render } from "ink";
+import { Box, Text, Static, useApp, useInput, useWindowSize, render } from "ink";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
 import type { Todo } from "../tools/index.js";
@@ -19,6 +19,7 @@ import { ThinkingIndicator } from "./thinking.js";
 import PromptInput from "./promptInput.js";
 import { loadHistory, appendHistory } from "./history.js";
 import { summarizeTodos } from "./todoSummary.js";
+import { renderMarkdown } from "./markdown.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
 const MAX_BLOCK_COUNT = 100;
@@ -55,8 +56,8 @@ function parseCommand(text: string): string | null {
   return null;
 }
 
-/** 单个渲染块的展示 */
-function BlockView({ block }: { block: Block }): React.ReactElement {
+/** 单个渲染块的展示。width 为终端列宽，供 AI 回复的 Markdown 渲染（表格等）使用。 */
+function BlockView({ block, width }: { block: Block; width: number }): React.ReactElement {
   switch (block.kind) {
     case "user":
       return (
@@ -66,9 +67,10 @@ function BlockView({ block }: { block: Block }): React.ReactElement {
         </Box>
       );
     case "ai":
+      // 模型回复按 Markdown 渲染成终端富文本（标题/列表/粗体/代码块/表格等）
       return (
         <Box marginTop={1}>
-          <Text color="white">{block.text}</Text>
+          <Text>{renderMarkdown(block.text, width)}</Text>
         </Box>
       );
     case "tool-call": {
@@ -234,6 +236,8 @@ function App({
   const [history, setHistory] = useState<string[]>(() => loadHistory(litecodeDir));
   // 当前「全部完成」的任务清单是否已落入内容流，避免重复追加（见 onTodos）
   const todosMovedRef = useRef(false);
+  // 终端列宽，供 AI 回复的 Markdown 渲染（表格等需要固定宽度）
+  const { columns } = useWindowSize();
 
   // 订阅 controller 事件
   useEffect(() => {
@@ -338,7 +342,7 @@ function App({
         导致输入框光标错位（跑到上一行）。
       */}
       <Static items={blocks}>
-        {(b, i) => <BlockView key={i} block={b} />}
+        {(b, i) => <BlockView key={i} block={b} width={columns || 80} />}
       </Static>
 
       {todos.length > 0 && <TodoView todos={todos} />}
