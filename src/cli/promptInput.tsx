@@ -37,6 +37,9 @@ export interface PromptInputProps {
 
 const PROMPT = "> ";
 const PREFIX_WIDTH = stringWidth(PROMPT);
+// 输入框只画上下两条横线（border 仅开 top/bottom）。顶部横线占 1 行，
+// 故内容相对外框 top 下移 1 行，计算硬件光标 y 时需补上这 1 行。
+const BORDER_TOP_ROWS = 1;
 
 function PromptInput({
   value,
@@ -211,15 +214,25 @@ function PromptInput({
   const showPlaceholder = value.length === 0 && placeholder.length > 0;
 
   // 设置硬件光标位置（渲染期调用，useCursor 内部在提交期生效）
+  // 顶部横线占 1 行，内容在外框 top 之下 BORDER_TOP_ROWS 行，故 y 需补上这 1 行。
   const pos = buf.locateCaret(value, caret, PREFIX_WIDTH, cols);
   if (isActive && hasMeasured) {
-    setCursorPosition({ x: left + pos.col, y: top + pos.row });
+    setCursorPosition({ x: left + pos.col, y: top + BORDER_TOP_ROWS + pos.row });
   } else {
     setCursorPosition(undefined);
   }
 
+  // 只画上下两条横线（关闭左右边框）：边框随内容高度自动撑开，把所有内容包起来。
   return (
-    <Box ref={ref} marginTop={1}>
+    <Box
+      ref={ref}
+      marginTop={1}
+      flexDirection="column"
+      borderStyle="round"
+      borderColor="grey"
+      borderLeft={false}
+      borderRight={false}
+    >
       <Text>
         <Text color="cyan">{PROMPT}</Text>
         {showPlaceholder ? <Text dimColor>{placeholder}</Text> : rendered}

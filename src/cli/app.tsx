@@ -11,7 +11,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Box, Text, useApp, useInput, render } from "ink";
+import { Box, Text, Static, useApp, useInput, render } from "ink";
 import type { SessionController } from "./controller.js";
 import type { Block, AuthRequest, Phase } from "./types.js";
 import type { Todo } from "../tools/index.js";
@@ -331,9 +331,15 @@ function App({
 
   return (
     <Box flexDirection="column">
-      {blocks.map((b, i) => (
-        <BlockView key={i} block={b} />
-      ))}
+      {/*
+        已完成的对话块用 <Static> 一次性写入终端 scrollback、不再重绘：
+        这样「实时区」只剩 TodoView/指示器/输入框等少量内容，永远不超过终端高度。
+        否则整段对话都在实时区，一旦溢出，Ink 会走全量重绘并丢弃 useCursor 的光标定位，
+        导致输入框光标错位（跑到上一行）。
+      */}
+      <Static items={blocks}>
+        {(b, i) => <BlockView key={i} block={b} />}
+      </Static>
 
       {todos.length > 0 && <TodoView todos={todos} />}
 
