@@ -5,6 +5,8 @@
  * 把类型集中在这里，避免 controller 与 app 互相依赖实现细节。
  */
 
+import type { Todo } from "../tools/updateTodos.js";
+
 /** 一个可渲染的内容块 */
 export interface Block {
   /**
@@ -15,12 +17,15 @@ export interface Block {
    * - tool-result 工具执行结果
    * - info        提示信息
    * - error       错误信息
+   * - todos       任务清单快照（全部完成后从「实时贴底」转为「随内容滚动」时落入内容流）
    */
-  kind: "user" | "ai" | "tool-call" | "tool-result" | "info" | "error";
+  kind: "user" | "ai" | "tool-call" | "tool-result" | "info" | "error" | "todos";
   /** 正文文本 */
   text: string;
   /** 工具名（tool-call / tool-result 时有值） */
   toolName?: string;
+  /** 任务清单快照（kind 为 todos 时有值） */
+  todos?: Todo[];
 }
 
 /** 一次需要用户按键回答的授权/确认请求 */

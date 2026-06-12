@@ -18,6 +18,7 @@ import type { Todo } from "../tools/index.js";
 import { ThinkingIndicator } from "./thinking.js";
 import PromptInput from "./promptInput.js";
 import { loadHistory, appendHistory } from "./history.js";
+import { summarizeTodos } from "./todoSummary.js";
 
 /** 块内文本在界面上最多显示的字符数，超出则省略（仅影响展示，不影响发给模型的内容） */
 const MAX_BLOCK_COUNT = 100;
@@ -96,6 +97,9 @@ function BlockView({ block }: { block: Block }): React.ReactElement {
           <Text color="gray">{clampCount(block.text)}</Text>
         </Box>
       );
+    case "todos":
+      // 任务清单全部完成后落入内容流的快照，复用 TodoView 渲染
+      return block.todos ? <TodoView todos={block.todos} /> : <></>;
     case "error":
       return (
         <Box marginTop={1}>
@@ -182,12 +186,16 @@ function AuthView({
   );
 }
 
-/** Todo 列表展示：○ 待办 / ◐ 进行中 / ✓ 已完成 */
+/**
+ * Todo 列表展示：○ 待办 / ◐ 进行中 / ✓ 已完成。
+ * 最多展示 3 条（优先包含进行中的任务）；超出时用省略行标明总数与已完成数。
+ */
 function TodoView({ todos }: { todos: Todo[] }): React.ReactElement {
+  const { visible, total, completed, truncated } = summarizeTodos(todos);
   return (
     <Box marginTop={1} borderStyle="round" borderColor="magenta" paddingX={1} flexDirection="column">
       <Text color="magenta">任务清单</Text>
-      {todos.map((t, i) => {
+      {visible.map((t, i) => {
         const glyph =
           t.status === "completed" ? "✓" : t.status === "in_progress" ? "◐" : "○";
         const color =
@@ -197,11 +205,14 @@ function TodoView({ todos }: { todos: Todo[] }): React.ReactElement {
               ? "yellow"
               : "gray";
         return (
-          <Text key={i} color={color}>
+          <Text key={`${i}-${t.content}`} color={color}>
             {glyph} {t.content}
           </Text>
         );
       })}
+      {truncated && (
+        <Text dimColor>{`…（共 ${total} 个任务，${completed} 个已完成）`}</Text>
+      )}
     </Box>
   );
 }
@@ -221,6 +232,8 @@ function App({
   const [todos, setTodos] = useState<Todo[]>([]);
   const [input, setInput] = useState("");
   const [history, setHistory] = useState<string[]>(() => loadHistory(litecodeDir));
+  // 当前「全部完成」的任务清单是否已落入内容流，避免重复追加（见 onTodos）
+  const todosMovedRef = useRef(false);
 
   // 订阅 controller 事件
   useEffect(() => {
@@ -230,7 +243,24 @@ function App({
       setAuth(req);
       setPhase("auth");
     };
-    const onTodos = (list: Todo[]) => setTodos(list);
+    // 任务清单更新：
+    // - 进行中：作为「实时贴底」的 TodoView 展示，方便持续看到进度。
+    // - 全部完成：把这份清单快照成一个 block 落入内容流（固定在完成时刻的位置，
+    //   后续内容排在其下方，从而随内容一起向上滚动），并清空实时清单。
+    //   movedRef 防止同一份「全部完成」清单被重复落盘；一旦出现未完成的新清单则重置。
+    const onTodos = (list: Todo[]) => {
+      const allDone = list.length > 0 && list.every((t) => t.status === "completed");
+      if (allDone) {
+        if (!todosMovedRef.current) {
+          todosMovedRef.current = true;
+          setBlocks((prev) => [...prev, { kind: "todos", text: "", todos: list }]);
+        }
+        setTodos([]);
+      } else {
+        todosMovedRef.current = false;
+        setTodos(list);
+      }
+    };
     controller.on("block", onBlock);
     controller.on("phase", onPhase);
     controller.on("auth", onAuth);
